@@ -2,10 +2,22 @@
 
 typedef struct Camera
 {
-    glm::vec3 pos;
+    float theta;
+    float phi;
+    float radius;
+
     glm::vec3 target;
 } Camera;
 
+
+glm::vec3 getCartesianPosition(Camera &cam)
+{
+    // NOTE(kk): Most of math resources on the subject refer to Y axis as Z
+    float posX = cam.target.x + cam.radius * sin(cam.phi) * cos(cam.theta);
+    float posY = cam.target.z + cam.radius * cos(cam.phi);
+    float posZ = cam.target.y + cam.radius * sin(cam.phi) * sin(cam.theta);
+    return glm::vec3(posX, posY, posZ);
+}
 
 typedef struct CameraCoordFrame
 {

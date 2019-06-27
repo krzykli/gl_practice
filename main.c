@@ -45,23 +45,18 @@ static bool pan_mode = false;
 static double theta = 0;
 static double phi = 0;
 
+static float pan_x = 0;
+static float pan_y = 0;
+
 static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
 {
     if(rotate_mode) {
-        theta += (xpos - lastPressX) * 0.01f;
-        phi += (ypos - lastPressY) * 0.01f;
+        global_cam.theta += (xpos - lastPressX) * 0.01f;
+        global_cam.phi += (ypos - lastPressY) * 0.01f;
     }
     else if(pan_mode) {
-        CameraCoordFrame coordFrame;
-        getCameraCoordinateFrame(coordFrame, global_cam.pos, global_cam.target);
-
-        float pan_x = (xpos - lastPressX) * 0.01f;
-        float pan_y = (ypos - lastPressY) * 0.01f;
-
-        glm::vec3 offset = coordFrame.right * pan_x + coordFrame.up * pan_y;
-        global_cam.target = global_cam.target + offset;
-        global_cam.pos = global_cam.pos + offset;
-
+        pan_x = (xpos - lastPressX) * 0.01f;
+        pan_y = (ypos - lastPressY) * 0.01f;
     }
     /*theta = fmax(fmin(theta, 3.14 * 2), 0.0f);*/
     /*phi = fmax(fmin(phi, 3.14), 0.0f);*/
@@ -97,8 +92,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 {
-    glm::vec3 direction = glm::normalize(global_cam.pos - global_cam.target);
-    global_cam.pos = global_cam.pos + direction * float(yoffset) * 0.8f;
+    global_cam.radius += yoffset;
 }
 
 
@@ -252,9 +246,7 @@ int main()
     printf("GLSL version supported by this platform: %s\n",
             glGetString(GL_SHADING_LANGUAGE_VERSION));
 
-    glEnable(GL_DEPTH_TEST); // enable depth-testing
-    glDepthFunc(GL_LESS); // depth-testing interprets a smaller value as "closer"
-    glEnable(GL_CULL_FACE); // depth-testing interprets a smaller value as "closer"
+
 
     GLuint vbo;
     glGenBuffers(1, &vbo);
@@ -278,27 +270,41 @@ int main()
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
 
 
-    GLuint vertex_shader_id = glCreateShader(GL_VERTEX_SHADER);
-    u8 rv = compileShader(vertex_shader_id, "default.vert");
+    GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
+    u8 rv = compileShader(default_vert_id, "default.vert");
     assert(rv);
 
-    GLuint fragment_shader_id= glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(fragment_shader_id, "default.frag");
+    GLuint default_frag_id= glCreateShader(GL_FRAGMENT_SHADER);
+    rv = compileShader(default_frag_id, "default.frag");
     assert(rv);
 
-    GLuint shader_program_id = glCreateProgram();
-    glAttachShader(shader_program_id, vertex_shader_id);
-    glAttachShader(shader_program_id, fragment_shader_id);
-    glLinkProgram(shader_program_id);
+    GLuint outline_frag_id= glCreateShader(GL_FRAGMENT_SHADER);
+    rv = compileShader(outline_frag_id, "outline.frag");
+    assert(rv);
+
+    GLuint default_shader_program_id = glCreateProgram();
+    glAttachShader(default_shader_program_id, default_vert_id);
+    glAttachShader(default_shader_program_id, default_frag_id);
+    glLinkProgram(default_shader_program_id);
+
+    GLuint outline_shader_program_id = glCreateProgram();
+    glAttachShader(outline_shader_program_id, default_vert_id);
+    glAttachShader(outline_shader_program_id, outline_frag_id);
+    glLinkProgram(outline_shader_program_id);
 
     // WORLD
-    global_cam.pos = glm::vec3(5, 5, 5);
+    global_cam.theta = 45.0f;
+    global_cam.phi = 45.0f;
     global_cam.target = glm::vec3(0, 0, 0);
+    global_cam.radius = 5;
 
     glm::mat4 Projection = glm::perspective(
-            glm::radians(45.0f), (float)window_width / (float)window_height, 0.1f, 100.0f);
+        glm::radians(45.0f),
+        (float)window_width / (float)window_height,
+        0.1f, 100.0f
+    );
 
-    GLuint MatrixID = glGetUniformLocation(shader_program_id, "MVP");
+    GLuint MatrixID = glGetUniformLocation(default_shader_program_id, "MVP");
 
     double current_frame = glfwGetTime();
     double last_frame= current_frame;
@@ -309,35 +315,37 @@ int main()
         current_frame = glfwGetTime();
         delta_time = current_frame - last_frame;
         last_frame = current_frame;
-
-        float radius = sqrt(pow(global_cam.pos.x, 2) + pow(global_cam.pos.y, 2) + pow(global_cam.pos.z, 2));
-        // NOTE(kk): Most of math resources on the subject refer to Y axis as Z
-        float eyeX = global_cam.target.x + radius*sin(phi)*cos(theta);
-        float eyeY = global_cam.target.z + radius*cos(phi); // <-
-        float eyeZ = global_cam.target.y + radius*sin(phi)*sin(theta); // <-
-
-        global_cam.pos = glm::vec3(eyeX, eyeY, eyeZ);
-
+        // Cam prep
+        glm::vec3 camera_pos = getCartesianPosition(global_cam);
         CameraCoordFrame coordFrame;
-        getCameraCoordinateFrame(coordFrame, global_cam.pos, global_cam.target);
+        if (pan_mode)
+        {
+            getCameraCoordinateFrame(coordFrame, camera_pos,
+                                     global_cam.target);
+            glm::vec3 offset = coordFrame.right * pan_x + coordFrame.up * pan_y;
+            global_cam.target = global_cam.target + offset;
+        }
+        getCameraCoordinateFrame(coordFrame, camera_pos, global_cam.target);
 
         glm::mat4 View = glm::lookAt(
-            global_cam.pos,
+            camera_pos,
             global_cam.target,
             coordFrame.up
         );
 
         glm::mat4 mvp = Projection * View * Model;
+        //
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glUseProgram(shader_program_id);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
+
+        glUseProgram(default_shader_program_id);
         glUniformMatrix4fv(MatrixID, 1, GL_FALSE, &mvp[0][0]);
-
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, 12 * 3);
 
         glfwPollEvents();
-
         glfwSwapBuffers(window);
     }
 
