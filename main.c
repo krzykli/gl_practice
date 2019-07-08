@@ -41,9 +41,10 @@ static double lastPressX, lastPressY;
 
 static bool rotate_mode = false;
 static bool pan_mode = false;
+static CoordFrame pan_coord_frame;
 
-static double theta = 0;
-static double phi = 0;
+static float theta = 0;
+static float phi = 0;
 
 static float pan_x = 0;
 static float pan_y = 0;
@@ -51,8 +52,8 @@ static float pan_y = 0;
 static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
 {
     if(rotate_mode) {
-        global_cam.theta += (xpos - lastPressX) * 0.01f;
-        global_cam.phi += (ypos - lastPressY) * 0.01f;
+        theta = (xpos - lastPressX) * 0.01f;
+        phi = (ypos - lastPressY) * 0.01f;
     }
     else if(pan_mode) {
         pan_x = (xpos - lastPressX) * 0.01f;
@@ -82,6 +83,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         lastPressX = xpos;
         lastPressY = ypos;
         pan_mode = true;
+        getCameraCoordinateFrame(pan_coord_frame, global_cam.position, global_cam.target);
     }
     else if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
     {
@@ -92,7 +94,10 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 {
-    global_cam.radius += yoffset;
+    CoordFrame coord_frame;
+    getCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);
+    glm::vec3 offset = coord_frame.direction * (float)yoffset;
+    global_cam.position += offset;
 }
 
 
@@ -293,10 +298,9 @@ int main()
     glLinkProgram(outline_shader_program_id);
 
     // WORLD
-    global_cam.theta = 45.0f;
-    global_cam.phi = 45.0f;
+    glm::vec3 pos = glm::vec3(5, 0, 0);
+    global_cam.position = pos;
     global_cam.target = glm::vec3(0, 0, 0);
-    global_cam.radius = 5;
 
     glm::mat4 Projection = glm::perspective(
         glm::radians(45.0f),
@@ -316,21 +320,44 @@ int main()
         delta_time = current_frame - last_frame;
         last_frame = current_frame;
         // Cam prep
-        glm::vec3 camera_pos = getCartesianPosition(global_cam);
-        CameraCoordFrame coordFrame;
+        glm::vec3 camera_pos = global_cam.position;
+        printf("cam pos: %.4f, %.4f %.4f\n", camera_pos.x, camera_pos.y, camera_pos.z);
+        CoordFrame coord_frame;
         if (pan_mode)
         {
-            getCameraCoordinateFrame(coordFrame, camera_pos,
-                                     global_cam.target);
-            glm::vec3 offset = coordFrame.right * pan_x + coordFrame.up * pan_y;
-            global_cam.target = global_cam.target + offset;
+            printf("coord_frame dir: %.4f, %.4f, %.4f\n", pan_coord_frame.direction.x, pan_coord_frame.direction.y, pan_coord_frame.direction.z);
+            printf("pan_coord_frame right: %.4f, %.4f, %.4f\n", pan_coord_frame.right.x, pan_coord_frame.right.y, pan_coord_frame.right.z);
+            printf("pan_coord_frame up: %.4f, %.4f, %.4f\n", pan_coord_frame.up.x, pan_coord_frame.up.y, pan_coord_frame.up.z);
+            glm::vec3 opposite_right = pan_coord_frame.right * -1.0f;
+            glm::vec3 offset = opposite_right * pan_x + pan_coord_frame.up * pan_y;
+            global_cam.position += offset;
+            global_cam.target += offset;
         }
-        getCameraCoordinateFrame(coordFrame, camera_pos, global_cam.target);
+        else if (rotate_mode)
+        {
+            /*getCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);*/
+            /*glm::vec3 opposite_right = coord_frame.right * -1.0f;*/
+            /*glm::vec3 offset = opposite_right * theta + coord_frame.up * phi;*/
+            /*global_cam.position += offset;*/
+            SphericalCoords spherical_coords = getSphericalCoords(global_cam.position);
+            printf("spher pos: %.4f, %.4f %.4f\n", spherical_coords.theta, spherical_coords.phi, spherical_coords.radius);
+            spherical_coords.theta += theta;
+            spherical_coords.phi -= phi;
+
+            if (spherical_coords.phi > M_PI)
+                spherical_coords.phi = M_PI - 0.00001f;
+            if (spherical_coords.phi < 0)
+                spherical_coords.phi = 0.000001f;
+
+            global_cam.position = getCartesianCoords(spherical_coords);
+        }
+
+        getCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);
 
         glm::mat4 View = glm::lookAt(
-            camera_pos,
+            global_cam.position,
             global_cam.target,
-            coordFrame.up
+            coord_frame.up
         );
 
         glm::mat4 mvp = Projection * View * Model;
