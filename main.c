@@ -37,32 +37,22 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 }
 
 
-static double lastPressX, lastPressY;
+
+static float cursor_delta_x = 0;
+static float cursor_delta_y = 0;
+static float last_press_x = 0;
+static float last_press_y = 0;
 
 static bool rotate_mode = false;
 static bool pan_mode = false;
 static CoordFrame pan_coord_frame;
 
-static float theta = 0;
-static float phi = 0;
-
-static float pan_x = 0;
-static float pan_y = 0;
-
 static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
 {
-    if(rotate_mode) {
-        theta = (xpos - lastPressX) * 0.01f;
-        phi = (ypos - lastPressY) * 0.01f;
-    }
-    else if(pan_mode) {
-        pan_x = (xpos - lastPressX) * 0.01f;
-        pan_y = (ypos - lastPressY) * 0.01f;
-    }
-    /*theta = fmax(fmin(theta, 3.14 * 2), 0.0f);*/
-    /*phi = fmax(fmin(phi, 3.14), 0.0f);*/
-    lastPressX = xpos;
-    lastPressY = ypos;
+    cursor_delta_x = xpos - last_press_x;
+    cursor_delta_y = ypos - last_press_y;
+    last_press_x = xpos;
+    last_press_y = ypos;
 }
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
@@ -72,16 +62,16 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
     {
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
-        lastPressX = xpos;
-        lastPressY = ypos;
+        last_press_x = xpos;
+        last_press_y = ypos;
         rotate_mode = true;
     }
     else if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && mods & GLFW_MOD_CONTROL)
     {
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
-        lastPressX = xpos;
-        lastPressY = ypos;
+        last_press_x = xpos;
+        last_press_y = ypos;
         pan_mode = true;
         getCameraCoordinateFrame(pan_coord_frame, global_cam.position, global_cam.target);
     }
@@ -95,8 +85,16 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 {
     CoordFrame coord_frame;
+    yoffset = fmin(yoffset, 1.0f);
+    yoffset = fmax(yoffset, -1.0f);
     getCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);
     glm::vec3 offset = coord_frame.direction * (float)yoffset;
+    glm::vec3 new_pos = global_cam.position + offset;
+    float distance = glm::distance(new_pos, global_cam.target);
+    printf("ditstance %.4f\n", distance);
+    if (distance < 1.0f)
+        offset = glm::vec3(0, 0, 0);
+
     global_cam.position += offset;
 }
 
@@ -136,7 +134,7 @@ u8 compileShader(GLuint shader_id, const char* shader_path)
     }
     return 1;
 }
-static const GLfloat cubeData[] = {
+static GLfloat cubeData[] = {
     -1.0f,-1.0f,-1.0f, // triangle 1 : begin
     -1.0f,-1.0f, 1.0f,
     -1.0f, 1.0f, 1.0f, // triangle 1 : end
@@ -175,7 +173,7 @@ static const GLfloat cubeData[] = {
     1.0f,-1.0f, 1.0f
 };
 
-static const GLfloat colorData[] = {
+static GLfloat colorData[] = {
     0.583f,  0.771f,  0.014f,
     0.609f,  0.115f,  0.436f,
     0.327f,  0.483f,  0.844f,
@@ -215,57 +213,68 @@ static const GLfloat colorData[] = {
 };
 
 
-int main()
+typedef struct Transform
 {
-    if (!glfwInit())
-        return -1;
-
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-
-    u32 window_width = 640;
-    u32 window_height = 480;
-
-    GLFWwindow* window = glfwCreateWindow(
-            window_width, window_height, "Hello World", NULL, NULL);
-
-    if (!window) {
-        glfwTerminate();
-        return -1;
-    }
-    glfwMakeContextCurrent(window);
-
-    glewExperimental = GL_TRUE;
-    if (glewInit())
-        return -1;
-
-    glfwSetKeyCallback(window, keyCallback);
-    glfwSetCursorPosCallback(window, cursorPositionCallback);
-    glfwSetMouseButtonCallback(window, mouseButtonCallback);
-    glfwSetScrollCallback(window, scrollCallback);
-
-    printf("OpenGL version supported by this platform: %s\n",
-            glGetString(GL_VERSION));
-    printf("GLSL version supported by this platform: %s\n",
-            glGetString(GL_SHADING_LANGUAGE_VERSION));
+     glm::mat4 matrix;
+} Transform;
 
 
-
+void glDrawMesh(GLuint& vao, float* vertex_array, u32 vertex_count)
+{
     GLuint vbo;
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, 36 * 3 * sizeof(float), cubeData, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, vertex_count * sizeof(float), cubeData, GL_STATIC_DRAW);
 
-    GLuint vao;
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+};
 
+int main()
+{
+    GLFWwindow* window;
+    u32 window_width = 640;
+    u32 window_height = 480;
+
+    { // GL INIT
+        if (!glfwInit())
+            return -1;
+
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+
+        window = glfwCreateWindow(
+            window_width, window_height, "Hello World", NULL, NULL);
+
+        if (!window) {
+            glfwTerminate();
+            return -1;
+        }
+        glfwMakeContextCurrent(window);
+
+        glewExperimental = GL_TRUE;
+        if (glewInit())
+            return -1;
+
+        glfwSetKeyCallback(window, keyCallback);
+        glfwSetCursorPosCallback(window, cursorPositionCallback);
+        glfwSetMouseButtonCallback(window, mouseButtonCallback);
+        glfwSetScrollCallback(window, scrollCallback);
+
+        printf("OpenGL version supported by this platform: %s\n",
+                glGetString(GL_VERSION));
+        printf("GLSL version supported by this platform: %s\n",
+                glGetString(GL_SHADING_LANGUAGE_VERSION));
+    }
+
+    GLuint vao;
+    glDrawMesh(vao, cubeData, 36 * 3);
 
     GLuint colorbuffer;
     glGenBuffers(1, &colorbuffer);
@@ -321,17 +330,18 @@ int main()
         last_frame = current_frame;
         // Cam prep
         glm::vec3 camera_pos = global_cam.position;
-        printf("cam pos: %.4f, %.4f %.4f\n", camera_pos.x, camera_pos.y, camera_pos.z);
         CoordFrame coord_frame;
         if (pan_mode)
         {
-            printf("coord_frame dir: %.4f, %.4f, %.4f\n", pan_coord_frame.direction.x, pan_coord_frame.direction.y, pan_coord_frame.direction.z);
-            printf("pan_coord_frame right: %.4f, %.4f, %.4f\n", pan_coord_frame.right.x, pan_coord_frame.right.y, pan_coord_frame.right.z);
-            printf("pan_coord_frame up: %.4f, %.4f, %.4f\n", pan_coord_frame.up.x, pan_coord_frame.up.y, pan_coord_frame.up.z);
+            printf("cursor %.8f\n", cursor_delta_x);
+            float delta_pan_x = cursor_delta_x * 0.01f;
+            float delta_pan_y = cursor_delta_y * 0.01f;
             glm::vec3 opposite_right = pan_coord_frame.right * -1.0f;
-            glm::vec3 offset = opposite_right * pan_x + pan_coord_frame.up * pan_y;
+            glm::vec3 offset = opposite_right * delta_pan_x + pan_coord_frame.up * delta_pan_y;
             global_cam.position += offset;
             global_cam.target += offset;
+            cursor_delta_x = 0;
+            cursor_delta_y = 0;
         }
         else if (rotate_mode)
         {
@@ -340,9 +350,12 @@ int main()
             /*glm::vec3 offset = opposite_right * theta + coord_frame.up * phi;*/
             /*global_cam.position += offset;*/
             SphericalCoords spherical_coords = getSphericalCoords(global_cam.position);
-            printf("spher pos: %.4f, %.4f %.4f\n", spherical_coords.theta, spherical_coords.phi, spherical_coords.radius);
-            spherical_coords.theta += theta;
-            spherical_coords.phi -= phi;
+
+            float delta_theta = cursor_delta_x * 0.01f;
+            float delta_phi = cursor_delta_y * 0.01f;
+
+            spherical_coords.theta += delta_theta;
+            spherical_coords.phi -= delta_phi;
 
             if (spherical_coords.phi > M_PI)
                 spherical_coords.phi = M_PI - 0.00001f;
@@ -350,6 +363,8 @@ int main()
                 spherical_coords.phi = 0.000001f;
 
             global_cam.position = getCartesianCoords(spherical_coords);
+            cursor_delta_x = 0;
+            cursor_delta_y = 0;
         }
 
         getCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);
@@ -374,6 +389,7 @@ int main()
 
         glfwPollEvents();
         glfwSwapBuffers(window);
+
     }
 
     glfwTerminate();
