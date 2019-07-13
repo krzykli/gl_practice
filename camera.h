@@ -41,7 +41,7 @@ SphericalCoords getSphericalCoords(glm::vec3 position)
 }
 
 
-void getCameraCoordinateFrame(CoordFrame &coords, glm::vec3 position, glm::vec3 target)
+void updateCameraCoordinateFrame(CoordFrame &coords, glm::vec3 position, glm::vec3 target)
 {
     glm::vec3 direction = glm::normalize(position - target);
     glm::vec3 right = glm::normalize(glm::cross(glm::vec3(0, 1, 0), direction));

@@ -73,7 +73,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         last_press_x = xpos;
         last_press_y = ypos;
         pan_mode = true;
-        getCameraCoordinateFrame(pan_coord_frame, global_cam.position, global_cam.target);
+        updateCameraCoordinateFrame(pan_coord_frame, global_cam.position, global_cam.target);
     }
     else if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
     {
@@ -87,7 +87,7 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
     CoordFrame coord_frame;
     yoffset = fmin(yoffset, 1.0f);
     yoffset = fmax(yoffset, -1.0f);
-    getCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);
+    updateCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);
     glm::vec3 offset = coord_frame.direction * (float)yoffset;
     glm::vec3 new_pos = global_cam.position + offset;
     float distance = glm::distance(new_pos, global_cam.target);
@@ -134,6 +134,7 @@ u8 compileShader(GLuint shader_id, const char* shader_path)
     }
     return 1;
 }
+
 static GLfloat cubeData[] = {
     -1.0f,-1.0f,-1.0f, // triangle 1 : begin
     -1.0f,-1.0f, 1.0f,
@@ -172,6 +173,7 @@ static GLfloat cubeData[] = {
     -1.0f, 1.0f, 1.0f,
     1.0f,-1.0f, 1.0f
 };
+
 
 static GLfloat colorData[] = {
     0.583f,  0.771f,  0.014f,
@@ -219,20 +221,48 @@ typedef struct Transform
 } Transform;
 
 
-void glDrawMesh(GLuint& vao, float* vertex_array, u32 vertex_count)
+typedef struct Mesh
 {
+    u32 vertex_count;
+    float* vertex_positions;
+    float* vertex_colors;
+} Mesh;
+
+
+void drawShadedMesh(Mesh &mesh, GLuint shader_program_id, glm::mat4 vp)
+{
+    glm::mat4 Model = glm::mat4(1.0f);
+    glm::mat4 mvp = vp * Model;
+
     GLuint vbo;
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, vertex_count * sizeof(float), cubeData, GL_STATIC_DRAW);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        mesh.vertex_count * sizeof(float),
+        mesh.vertex_positions,
+        GL_STATIC_DRAW);
 
+    GLuint vao;
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+
+
+    GLuint matrix_id = glGetUniformLocation(shader_program_id, "MVP");
+
+    glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
+
+    glUseProgram(shader_program_id);
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLES, 0, mesh.vertex_count / 3);
+
 };
+
+
 
 int main()
 {
@@ -271,28 +301,29 @@ int main()
                 glGetString(GL_VERSION));
         printf("GLSL version supported by this platform: %s\n",
                 glGetString(GL_SHADING_LANGUAGE_VERSION));
-    }
+    } // END GL INIT
 
-    GLuint vao;
-    glDrawMesh(vao, cubeData, 36 * 3);
+    Mesh cube_mesh;
+    cube_mesh.vertex_count = 36 * 3;
+    cube_mesh.vertex_positions = cubeData;
+    cube_mesh.vertex_colors = colorData;
 
-    GLuint colorbuffer;
-    glGenBuffers(1, &colorbuffer);
-    glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(colorData), colorData, GL_STATIC_DRAW);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-
+    /*GLuint colorbuffer;*/
+    /*glGenBuffers(1, &colorbuffer);*/
+    /*glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);*/
+    /*glBufferData(GL_ARRAY_BUFFER, sizeof(colorData), colorData, GL_STATIC_DRAW);*/
+    /*glEnableVertexAttribArray(1);*/
+    /*glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);*/
 
     GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
     u8 rv = compileShader(default_vert_id, "default.vert");
     assert(rv);
 
-    GLuint default_frag_id= glCreateShader(GL_FRAGMENT_SHADER);
+    GLuint default_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
     rv = compileShader(default_frag_id, "default.frag");
     assert(rv);
 
-    GLuint outline_frag_id= glCreateShader(GL_FRAGMENT_SHADER);
+    GLuint outline_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
     rv = compileShader(outline_frag_id, "outline.frag");
     assert(rv);
 
@@ -317,57 +348,52 @@ int main()
         0.1f, 100.0f
     );
 
-    GLuint MatrixID = glGetUniformLocation(default_shader_program_id, "MVP");
-
     double current_frame = glfwGetTime();
     double last_frame= current_frame;
-
-    glm::mat4 Model = glm::mat4(1.0f);
 
     while (!glfwWindowShouldClose(window)) {
         current_frame = glfwGetTime();
         delta_time = current_frame - last_frame;
         last_frame = current_frame;
-        // Cam prep
-        glm::vec3 camera_pos = global_cam.position;
         CoordFrame coord_frame;
-        if (pan_mode)
-        {
-            printf("cursor %.8f\n", cursor_delta_x);
-            float delta_pan_x = cursor_delta_x * 0.01f;
-            float delta_pan_y = cursor_delta_y * 0.01f;
-            glm::vec3 opposite_right = pan_coord_frame.right * -1.0f;
-            glm::vec3 offset = opposite_right * delta_pan_x + pan_coord_frame.up * delta_pan_y;
-            global_cam.position += offset;
-            global_cam.target += offset;
-            cursor_delta_x = 0;
-            cursor_delta_y = 0;
-        }
-        else if (rotate_mode)
-        {
-            /*getCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);*/
-            /*glm::vec3 opposite_right = coord_frame.right * -1.0f;*/
-            /*glm::vec3 offset = opposite_right * theta + coord_frame.up * phi;*/
-            /*global_cam.position += offset;*/
-            SphericalCoords spherical_coords = getSphericalCoords(global_cam.position);
 
-            float delta_theta = cursor_delta_x * 0.01f;
-            float delta_phi = cursor_delta_y * 0.01f;
+        { // USER INTERACTION
+            glm::vec3 camera_pos = global_cam.position;
+            if (pan_mode)
+            {
+                printf("cursor %.8f\n", cursor_delta_x);
+                float delta_pan_x = cursor_delta_x * 0.01f;
+                float delta_pan_y = cursor_delta_y * 0.01f;
+                glm::vec3 opposite_right = pan_coord_frame.right * -1.0f;
+                glm::vec3 offset = opposite_right * delta_pan_x + pan_coord_frame.up * delta_pan_y;
+                global_cam.position += offset;
+                global_cam.target += offset;
+                cursor_delta_x = 0;
+                cursor_delta_y = 0;
+            }
+            else if (rotate_mode)
+            {
+                SphericalCoords spherical_coords = getSphericalCoords(global_cam.position);
 
-            spherical_coords.theta += delta_theta;
-            spherical_coords.phi -= delta_phi;
+                float delta_theta = cursor_delta_x * 0.01f;
+                float delta_phi = cursor_delta_y * 0.01f;
 
-            if (spherical_coords.phi > M_PI)
-                spherical_coords.phi = M_PI - 0.00001f;
-            if (spherical_coords.phi < 0)
-                spherical_coords.phi = 0.000001f;
+                spherical_coords.theta += delta_theta;
+                spherical_coords.phi -= delta_phi;
 
-            global_cam.position = getCartesianCoords(spherical_coords);
-            cursor_delta_x = 0;
-            cursor_delta_y = 0;
-        }
+                if (spherical_coords.phi > M_PI)
+                    spherical_coords.phi = M_PI - 0.00001f;
+                if (spherical_coords.phi < 0)
+                    spherical_coords.phi = 0.000001f;
 
-        getCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);
+                global_cam.position = getCartesianCoords(spherical_coords);
+                cursor_delta_x = 0;
+                cursor_delta_y = 0;
+            }
+
+            updateCameraCoordinateFrame(coord_frame,
+                global_cam.position, global_cam.target);
+        } // END USER INTERACTION
 
         glm::mat4 View = glm::lookAt(
             global_cam.position,
@@ -375,21 +401,16 @@ int main()
             coord_frame.up
         );
 
-        glm::mat4 mvp = Projection * View * Model;
-        //
+        glm::mat4 vp = Projection * View;
+
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
-
-        glUseProgram(default_shader_program_id);
-        glUniformMatrix4fv(MatrixID, 1, GL_FALSE, &mvp[0][0]);
-        glBindVertexArray(vao);
-        glDrawArrays(GL_TRIANGLES, 0, 12 * 3);
+        drawShadedMesh(cube_mesh, default_shader_program_id, vp);
 
         glfwPollEvents();
         glfwSwapBuffers(window);
-
     }
 
     glfwTerminate();
