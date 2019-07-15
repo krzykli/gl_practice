@@ -45,6 +45,7 @@ static float last_press_y = 0;
 
 static bool rotate_mode = false;
 static bool pan_mode = false;
+
 static CoordFrame pan_coord_frame;
 
 static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
@@ -91,7 +92,6 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
     glm::vec3 offset = coord_frame.direction * (float)yoffset;
     glm::vec3 new_pos = global_cam.position + offset;
     float distance = glm::distance(new_pos, global_cam.target);
-    printf("ditstance %.4f\n", distance);
     if (distance < 1.0f)
         offset = glm::vec3(0, 0, 0);
 
@@ -226,42 +226,55 @@ typedef struct Mesh
     u32 vertex_count;
     float* vertex_positions;
     float* vertex_colors;
+    glm::mat4 model_matrix;
 } Mesh;
 
 
-void drawShadedMesh(Mesh &mesh, GLuint shader_program_id, glm::mat4 vp)
+void drawShadedMesh(Mesh &mesh, GLuint vao, GLuint shader_program_id, glm::mat4 vp)
 {
-    glm::mat4 Model = glm::mat4(1.0f);
-    glm::mat4 mvp = vp * Model;
+    glm::mat4 mvp = vp * mesh.model_matrix;
 
-    GLuint vbo;
-    glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(
-        GL_ARRAY_BUFFER,
-        mesh.vertex_count * sizeof(float),
-        mesh.vertex_positions,
-        GL_STATIC_DRAW);
-
-    GLuint vao;
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-
-
-    GLuint matrix_id = glGetUniformLocation(shader_program_id, "MVP");
+    GLuint matrix_id = glGetUniformLocation(
+        shader_program_id, "MVP");
 
     glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
 
     glUseProgram(shader_program_id);
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLES, 0, mesh.vertex_count / 3);
-
 };
 
+GLuint prepareMeshForRendering(Mesh mesh)
+{
+    GLuint vao;
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+
+    GLuint vbo;
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+
+    glBufferData(GL_ARRAY_BUFFER,
+                 mesh.vertex_count * sizeof(float),
+                 mesh.vertex_positions,
+                 GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+
+    GLuint colorbuffer;
+    glGenBuffers(1, &colorbuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
+    glBufferData(GL_ARRAY_BUFFER,
+                 mesh.vertex_count * sizeof(float),
+                 mesh.vertex_colors,
+                 GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+
+    return vao;
+}
 
 
 int main()
@@ -303,18 +316,6 @@ int main()
                 glGetString(GL_SHADING_LANGUAGE_VERSION));
     } // END GL INIT
 
-    Mesh cube_mesh;
-    cube_mesh.vertex_count = 36 * 3;
-    cube_mesh.vertex_positions = cubeData;
-    cube_mesh.vertex_colors = colorData;
-
-    /*GLuint colorbuffer;*/
-    /*glGenBuffers(1, &colorbuffer);*/
-    /*glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);*/
-    /*glBufferData(GL_ARRAY_BUFFER, sizeof(colorData), colorData, GL_STATIC_DRAW);*/
-    /*glEnableVertexAttribArray(1);*/
-    /*glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);*/
-
     GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
     u8 rv = compileShader(default_vert_id, "default.vert");
     assert(rv);
@@ -348,8 +349,32 @@ int main()
         0.1f, 100.0f
     );
 
+    Mesh cube_mesh;
+    cube_mesh.vertex_count = 36 * 3;
+    cube_mesh.vertex_positions = cubeData;
+    cube_mesh.vertex_colors = colorData;
+    cube_mesh.model_matrix  = glm::mat4(1.0);
+
+    Mesh cube_mesh2;
+    cube_mesh2.vertex_count = 36 * 3;
+    cube_mesh2.vertex_positions = cubeData;
+    cube_mesh2.vertex_colors = colorData;
+    cube_mesh2.model_matrix  = glm::mat4(1.0);
+    cube_mesh2.model_matrix  = glm::translate(cube_mesh2.model_matrix,
+                                              glm::vec3(0, 3, 0));
+    Mesh cube_mesh3;
+    cube_mesh3.vertex_count = 36 * 3;
+    cube_mesh3.vertex_positions = cubeData;
+    cube_mesh3.vertex_colors = colorData;
+    cube_mesh3.model_matrix  = glm::mat4(1.0);
+    cube_mesh3.model_matrix  = glm::translate(cube_mesh3.model_matrix,
+                                              glm::vec3(0, 6, 0));
+    //
+
     double current_frame = glfwGetTime();
     double last_frame= current_frame;
+
+    GLuint vao = prepareMeshForRendering(cube_mesh);
 
     while (!glfwWindowShouldClose(window)) {
         current_frame = glfwGetTime();
@@ -361,7 +386,7 @@ int main()
             glm::vec3 camera_pos = global_cam.position;
             if (pan_mode)
             {
-                printf("cursor %.8f\n", cursor_delta_x);
+                /*printf("cursor %.8f\n", cursor_delta_x);*/
                 float delta_pan_x = cursor_delta_x * 0.01f;
                 float delta_pan_y = cursor_delta_y * 0.01f;
                 glm::vec3 opposite_right = pan_coord_frame.right * -1.0f;
@@ -403,11 +428,31 @@ int main()
 
         glm::mat4 vp = Projection * View;
 
+        glEnable(GL_STENCIL_TEST);
+
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        drawShadedMesh(cube_mesh, default_shader_program_id, vp);
+        // Stencil
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);  
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+        glStencilMask(0xFF); // each bit is written to the stencil buffer as is
+
+        drawShadedMesh(cube_mesh, vao, default_shader_program_id, vp);
+        drawShadedMesh(cube_mesh2, vao, default_shader_program_id, vp);
+        drawShadedMesh(cube_mesh3, vao, default_shader_program_id, vp);
+
+        /*glStencilFunc(GL_EQUAL, 1, 0xFF);*/
+        /*glStencilMask(0x00); // disable writing to the stencil buffer*/
+        /*glDisable(GL_DEPTH_TEST);*/
+
+        /*cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(1.2));*/
+        /*drawShadedMesh(cube_mesh, vao, outline_shader_program_id, vp);*/
+
+        /*glStencilMask(0xFF);*/
+        /*glEnable(GL_DEPTH_TEST);*/
 
         glfwPollEvents();
         glfwSwapBuffers(window);
