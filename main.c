@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -11,6 +12,8 @@
 
 #include "types.h"
 #include "camera.h"
+#include "array.h"
+
 
 static Camera global_cam;
 static double delta_time;
@@ -37,7 +40,6 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 }
 
 
-
 static float cursor_delta_x = 0;
 static float cursor_delta_y = 0;
 static float last_press_x = 0;
@@ -45,8 +47,8 @@ static float last_press_y = 0;
 
 static bool rotate_mode = false;
 static bool pan_mode = false;
-
 static CoordFrame pan_coord_frame;
+
 
 static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
 {
@@ -174,6 +176,18 @@ static GLfloat cubeData[] = {
     1.0f,-1.0f, 1.0f
 };
 
+static GLfloat backgroundPoints[] = {
+    -1.0f, -1.0f, 0.0f,
+    1.0f, -1.0f, 0.0f,
+    0.0f,  1.0f, 0.0f,
+};
+
+static GLfloat backgroundColors[] = {
+    1.0f,1.0f, 0.0f, // triangle 1 : begin
+    1.0f, 1.0f, 0.0f,
+    1.0f, 1.0f, 0.0f, // triangle 1 : end
+};
+
 
 static GLfloat colorData[] = {
     0.583f,  0.771f,  0.014f,
@@ -230,9 +244,16 @@ typedef struct Mesh
 } Mesh;
 
 
-void drawShadedMesh(Mesh &mesh, GLuint vao, GLuint shader_program_id, glm::mat4 vp)
+typedef struct GLMesh
 {
-    glm::mat4 mvp = vp * mesh.model_matrix;
+     Mesh* mesh;
+     GLuint vao;
+} GLMesh;
+
+
+void drawGLMesh(GLMesh &gl_mesh, GLuint shader_program_id, glm::mat4 vp)
+{
+    glm::mat4 mvp = vp * gl_mesh.mesh->model_matrix;
 
     GLuint matrix_id = glGetUniformLocation(
         shader_program_id, "MVP");
@@ -240,11 +261,11 @@ void drawShadedMesh(Mesh &mesh, GLuint vao, GLuint shader_program_id, glm::mat4 
     glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
 
     glUseProgram(shader_program_id);
-    glBindVertexArray(vao);
-    glDrawArrays(GL_TRIANGLES, 0, mesh.vertex_count / 3);
+    glBindVertexArray(gl_mesh.vao);
+    glDrawArrays(GL_TRIANGLES, 0, gl_mesh.mesh->vertex_count / 3);
 };
 
-GLuint prepareMeshForRendering(Mesh mesh)
+GLMesh prepareMeshForRendering(Mesh &mesh)
 {
     GLuint vao;
     glGenVertexArrays(1, &vao);
@@ -273,7 +294,11 @@ GLuint prepareMeshForRendering(Mesh mesh)
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
 
-    return vao;
+    GLMesh gl_mesh;
+    gl_mesh.mesh = &mesh;
+    gl_mesh.vao = vao;
+    return gl_mesh;
+
 }
 
 
@@ -349,32 +374,51 @@ int main()
         0.1f, 100.0f
     );
 
-    Mesh cube_mesh;
-    cube_mesh.vertex_count = 36 * 3;
-    cube_mesh.vertex_positions = cubeData;
-    cube_mesh.vertex_colors = colorData;
-    cube_mesh.model_matrix  = glm::mat4(1.0);
+    Array cube_mesh_array;
+    cube_mesh_array.element_size = sizeof(Mesh);
+    u32 max_cubes = 50;
+    cube_mesh_array.max_element_count = max_cubes;
+    ArrayInit(cube_mesh_array);
 
-    Mesh cube_mesh2;
-    cube_mesh2.vertex_count = 36 * 3;
-    cube_mesh2.vertex_positions = cubeData;
-    cube_mesh2.vertex_colors = colorData;
-    cube_mesh2.model_matrix  = glm::mat4(1.0);
-    cube_mesh2.model_matrix  = glm::translate(cube_mesh2.model_matrix,
-                                              glm::vec3(0, 3, 0));
-    Mesh cube_mesh3;
-    cube_mesh3.vertex_count = 36 * 3;
-    cube_mesh3.vertex_positions = cubeData;
-    cube_mesh3.vertex_colors = colorData;
-    cube_mesh3.model_matrix  = glm::mat4(1.0);
-    cube_mesh3.model_matrix  = glm::translate(cube_mesh3.model_matrix,
-                                              glm::vec3(0, 6, 0));
-    //
+    xorshift32_state xor_state;
+    xor_state.a = 10;
+
+    for (int i = 0; i < max_cubes; i++)
+    {
+        Mesh cube_mesh;
+        cube_mesh.vertex_count = 36 * 3;
+        cube_mesh.vertex_positions = cubeData;
+        cube_mesh.vertex_colors = colorData;
+        cube_mesh.model_matrix  = glm::mat4(1.0);
+        u32 base_offset = 10;
+
+        u32 offset = xorshift32(&xor_state);
+        float ratioX = offset / float(INT_MAX);
+
+        offset = xorshift32(&xor_state);
+        float ratioY = offset / float(INT_MAX);
+
+        offset = xorshift32(&xor_state);
+        float ratioZ = offset / float(INT_MAX);
+
+        glm::vec3 cube_pos = glm::vec3(base_offset * ratioX - base_offset,
+                                       base_offset * ratioY - base_offset,
+                                       base_offset * ratioZ - base_offset);
+
+        cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
+        ArrayAppend(cube_mesh_array, (void*)&cube_mesh);
+    }
+
+    Mesh background;
+    background.vertex_count = 3;
+    background.vertex_positions = backgroundPoints;
+    background.vertex_colors = backgroundColors;
+    background.model_matrix = glm::mat4(1.0);
+    ArrayAppend(cube_mesh_array, (void*)&background);
 
     double current_frame = glfwGetTime();
     double last_frame= current_frame;
 
-    GLuint vao = prepareMeshForRendering(cube_mesh);
 
     while (!glfwWindowShouldClose(window)) {
         current_frame = glfwGetTime();
@@ -387,8 +431,10 @@ int main()
             if (pan_mode)
             {
                 /*printf("cursor %.8f\n", cursor_delta_x);*/
-                float delta_pan_x = cursor_delta_x * 0.01f;
-                float delta_pan_y = cursor_delta_y * 0.01f;
+                float distance = glm::distance(camera_pos, global_cam.target);
+                float pan_speed_multiplier = distance * 0.001f;
+                float delta_pan_x = cursor_delta_x * pan_speed_multiplier;
+                float delta_pan_y = cursor_delta_y * pan_speed_multiplier;
                 glm::vec3 opposite_right = pan_coord_frame.right * -1.0f;
                 glm::vec3 offset = opposite_right * delta_pan_x + pan_coord_frame.up * delta_pan_y;
                 global_cam.position += offset;
@@ -426,37 +472,35 @@ int main()
             coord_frame.up
         );
 
-        glm::mat4 vp = Projection * View;
 
-        glEnable(GL_STENCIL_TEST);
+        glm::mat4 vp = Projection * View;
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
 
-        // Stencil
-        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);  
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        /*drawGLMesh(background, vaoBack, outline_shader_program_id, vp);*/
 
-        glStencilFunc(GL_ALWAYS, 1, 0xFF);
-        glStencilMask(0xFF); // each bit is written to the stencil buffer as is
+        for (int i=0; i < cube_mesh_array.max_element_count; i++)
+        {
+            Mesh* mesh = (Mesh*)ArrayGetIndex(cube_mesh_array, i);
 
-        drawShadedMesh(cube_mesh, vao, default_shader_program_id, vp);
-        drawShadedMesh(cube_mesh2, vao, default_shader_program_id, vp);
-        drawShadedMesh(cube_mesh3, vao, default_shader_program_id, vp);
+            u32 offset = xorshift32(&xor_state);
+            float ratioX = offset / float(INT_MAX);
 
-        /*glStencilFunc(GL_EQUAL, 1, 0xFF);*/
-        /*glStencilMask(0x00); // disable writing to the stencil buffer*/
-        /*glDisable(GL_DEPTH_TEST);*/
+            float xoffset = sin(current_frame * ratioX) * delta_time;
+            glm::vec3 offset_vec = glm::vec3(xoffset, 0, 0);
 
-        /*cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(1.2));*/
-        /*drawShadedMesh(cube_mesh, vao, outline_shader_program_id, vp);*/
-
-        /*glStencilMask(0xFF);*/
-        /*glEnable(GL_DEPTH_TEST);*/
+            mesh->model_matrix = glm::translate(mesh->model_matrix, offset_vec);
+            GLMesh glmesh = prepareMeshForRendering(*mesh);
+            drawGLMesh(glmesh, default_shader_program_id, vp);
+        }
 
         glfwPollEvents();
         glfwSwapBuffers(window);
     }
+
+    ArrayFree(cube_mesh_array);
 
     glfwTerminate();
     return 0;
