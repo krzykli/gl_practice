@@ -19,27 +19,6 @@ static Camera global_cam;
 static double delta_time;
 
 
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
-{
-    /*if (key == GLFW_KEY_W)*/
-    /*{*/
-    /*global_cam.pos.z = global_cam.pos.z + 50 * delta_time;*/
-    /*}*/
-    /*else if (key == GLFW_KEY_A)*/
-    /*{*/
-    /*global_cam.pos.x = global_cam.pos.x + 50 * delta_time;*/
-    /*}*/
-    /*else if (key == GLFW_KEY_S)*/
-    /*{*/
-    /*global_cam.pos.z = global_cam.pos.z - 50 * delta_time;*/
-    /*}*/
-    /*else if (key == GLFW_KEY_D)*/
-    /*{*/
-    /*global_cam.pos.x = global_cam.pos.x - 50 * delta_time;*/
-    /*}*/
-}
-
-
 static float cursor_delta_x = 0;
 static float cursor_delta_y = 0;
 static float last_press_x = 0;
@@ -48,6 +27,20 @@ static float last_press_y = 0;
 static bool rotate_mode = false;
 static bool pan_mode = false;
 static CoordFrame pan_coord_frame;
+
+
+void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (key == GLFW_KEY_W)
+    {
+        SphericalCoords spherical_coords = getSphericalCoords(global_cam.position);
+        spherical_coords.theta += 0.01f;
+        global_cam.position = getCartesianCoords(spherical_coords);
+    }
+    else if (key == GLFW_KEY_S)
+    {
+    }
+}
 
 
 static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
@@ -174,18 +167,6 @@ static GLfloat cubeData[] = {
     1.0f, 1.0f, 1.0f,
     -1.0f, 1.0f, 1.0f,
     1.0f,-1.0f, 1.0f
-};
-
-static GLfloat backgroundPoints[] = {
-    -1.0f, -1.0f, 0.0f,
-    1.0f, -1.0f, 0.0f,
-    0.0f,  1.0f, 0.0f,
-};
-
-static GLfloat backgroundColors[] = {
-    1.0f,1.0f, 0.0f, // triangle 1 : begin
-    1.0f, 1.0f, 0.0f,
-    1.0f, 1.0f, 0.0f, // triangle 1 : end
 };
 
 
@@ -371,12 +352,12 @@ int main()
     glm::mat4 Projection = glm::perspective(
         glm::radians(45.0f),
         (float)window_width / (float)window_height,
-        0.1f, 100.0f
+        0.1f, 10000.0f
     );
 
     Array cube_mesh_array;
     cube_mesh_array.element_size = sizeof(Mesh);
-    u32 max_cubes = 50;
+    u32 max_cubes = 5000;
     cube_mesh_array.max_element_count = max_cubes;
     ArrayInit(cube_mesh_array);
 
@@ -390,7 +371,7 @@ int main()
         cube_mesh.vertex_positions = cubeData;
         cube_mesh.vertex_colors = colorData;
         cube_mesh.model_matrix  = glm::mat4(1.0);
-        u32 base_offset = 10;
+        u32 base_offset = 100;
 
         u32 offset = xorshift32(&xor_state);
         float ratioX = offset / float(INT_MAX);
@@ -409,16 +390,12 @@ int main()
         ArrayAppend(cube_mesh_array, (void*)&cube_mesh);
     }
 
-    Mesh background;
-    background.vertex_count = 3;
-    background.vertex_positions = backgroundPoints;
-    background.vertex_colors = backgroundColors;
-    background.model_matrix = glm::mat4(1.0);
-    ArrayAppend(cube_mesh_array, (void*)&background);
-
     double current_frame = glfwGetTime();
     double last_frame= current_frame;
 
+
+    Mesh* mesh = (Mesh*)ArrayGetIndex(cube_mesh_array, 0);
+    GLMesh glmesh = prepareMeshForRendering(*mesh);
 
     while (!glfwWindowShouldClose(window)) {
         current_frame = glfwGetTime();
@@ -479,20 +456,20 @@ int main()
         glEnable(GL_CULL_FACE);
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        /*drawGLMesh(background, vaoBack, outline_shader_program_id, vp);*/
 
         for (int i=0; i < cube_mesh_array.max_element_count; i++)
         {
+
+            /*u32 offset = xorshift32(&xor_state);*/
+            /*float ratioX = offset / float(INT_MAX);*/
+
+            /*float xoffset = sin(current_frame * ratioX) * delta_time;*/
+            /*glm::vec3 offset_vec = glm::vec3(xoffset, 0, 0);*/
+
+            /*mesh->model_matrix = glm::translate(mesh->model_matrix, offset_vec);*/
             Mesh* mesh = (Mesh*)ArrayGetIndex(cube_mesh_array, i);
+            glmesh.mesh = mesh;
 
-            u32 offset = xorshift32(&xor_state);
-            float ratioX = offset / float(INT_MAX);
-
-            float xoffset = sin(current_frame * ratioX) * delta_time;
-            glm::vec3 offset_vec = glm::vec3(xoffset, 0, 0);
-
-            mesh->model_matrix = glm::translate(mesh->model_matrix, offset_vec);
-            GLMesh glmesh = prepareMeshForRendering(*mesh);
             drawGLMesh(glmesh, default_shader_program_id, vp);
         }
 
