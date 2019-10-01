@@ -28,17 +28,251 @@ static bool rotate_mode = false;
 static bool pan_mode = false;
 static CoordFrame pan_coord_frame;
 
+static Array cube_data_array;
+static xorshift32_state xor_state;
+
+
+GLfloat vertices_position[24] = {
+             0.0, 0.0,
+             0.5, 0.0,
+             0.5, 0.5,
+
+             0.0, 0.0,
+             0.0, 0.5,
+             -0.5, 0.5,
+
+             0.0, 0.0,
+             -0.5, 0.0,
+             -0.5, -0.5,
+
+             0.0, 0.0,
+             0.0, -0.5,
+             0.5, -0.5,
+     };
+
+static GLfloat lineColor[] = {
+             0.0, 0.0,
+             0.5, 0.0,
+             0.5, 0.5,
+
+             0.0, 0.0,
+             0.0, 0.5,
+             -0.5, 0.5,
+
+             0.0, 0.0,
+             -0.5, 0.0,
+             -0.5, -0.5,
+
+             0.0, 0.0,
+             0.0, -0.5,
+             0.5, -0.5,
+};
+
+static GLfloat cubeVertices[] = {
+    -1.0f,-1.0f,-1.0f, // triangle 1 : begin
+    -1.0f,-1.0f, 1.0f,
+    -1.0f, 1.0f, 1.0f, // triangle 1 : end
+    1.0f, 1.0f,-1.0f, // triangle 2 : begin
+    -1.0f,-1.0f,-1.0f,
+    -1.0f, 1.0f,-1.0f, // triangle 2 : end
+    1.0f,-1.0f, 1.0f,
+    -1.0f,-1.0f,-1.0f,
+    1.0f,-1.0f,-1.0f,
+    1.0f, 1.0f,-1.0f,
+    1.0f,-1.0f,-1.0f,
+    -1.0f,-1.0f,-1.0f,
+    -1.0f,-1.0f,-1.0f,
+    -1.0f, 1.0f, 1.0f,
+    -1.0f, 1.0f,-1.0f,
+    1.0f,-1.0f, 1.0f,
+    -1.0f,-1.0f, 1.0f,
+    -1.0f,-1.0f,-1.0f,
+    -1.0f, 1.0f, 1.0f,
+    -1.0f,-1.0f, 1.0f,
+    1.0f,-1.0f, 1.0f,
+    1.0f, 1.0f, 1.0f,
+    1.0f,-1.0f,-1.0f,
+    1.0f, 1.0f,-1.0f,
+    1.0f,-1.0f,-1.0f,
+    1.0f, 1.0f, 1.0f,
+    1.0f,-1.0f, 1.0f,
+    1.0f, 1.0f, 1.0f,
+    1.0f, 1.0f,-1.0f,
+    -1.0f, 1.0f,-1.0f,
+    1.0f, 1.0f, 1.0f,
+    -1.0f, 1.0f,-1.0f,
+    -1.0f, 1.0f, 1.0f,
+    1.0f, 1.0f, 1.0f,
+    -1.0f, 1.0f, 1.0f,
+    1.0f,-1.0f, 1.0f
+};
+
+static GLfloat colorData[] = {
+    0.583f,  0.771f,  0.014f,
+    0.609f,  0.115f,  0.436f,
+    0.327f,  0.483f,  0.844f,
+    0.822f,  0.569f,  0.201f,
+    0.435f,  0.602f,  0.223f,
+    0.310f,  0.747f,  0.185f,
+    0.597f,  0.770f,  0.761f,
+    0.559f,  0.436f,  0.730f,
+    0.359f,  0.583f,  0.152f,
+    0.483f,  0.596f,  0.789f,
+    0.559f,  0.861f,  0.639f,
+    0.195f,  0.548f,  0.859f,
+    0.014f,  0.184f,  0.576f,
+    0.771f,  0.328f,  0.970f,
+    0.406f,  0.615f,  0.116f,
+    0.676f,  0.977f,  0.133f,
+    0.971f,  0.572f,  0.833f,
+    0.140f,  0.616f,  0.489f,
+    0.997f,  0.513f,  0.064f,
+    0.945f,  0.719f,  0.592f,
+    0.543f,  0.021f,  0.978f,
+    0.279f,  0.317f,  0.505f,
+    0.167f,  0.620f,  0.077f,
+    0.347f,  0.857f,  0.137f,
+    0.055f,  0.953f,  0.042f,
+    0.714f,  0.505f,  0.345f,
+    0.783f,  0.290f,  0.734f,
+    0.722f,  0.645f,  0.174f,
+    0.302f,  0.455f,  0.848f,
+    0.225f,  0.587f,  0.040f,
+    0.517f,  0.713f,  0.338f,
+    0.053f,  0.959f,  0.120f,
+    0.393f,  0.621f,  0.362f,
+    0.673f,  0.211f,  0.457f,
+    0.820f,  0.883f,  0.371f,
+    0.982f,  0.099f,  0.879f
+};
+
+static GLfloat colorData1[] = {
+    0.983f,  0.999f,  0.414f,
+    0.909f,  0.999f,  0.436f,
+    0.927f,  0.999f,  0.444f,
+    0.922f,  0.999f,  0.401f,
+    0.935f,  0.999f,  0.423f,
+    0.910f,  0.999f,  0.485f,
+    0.997f,  0.999f,  0.461f,
+    0.959f,  0.999f,  0.430f,
+    0.959f,  0.999f,  0.452f,
+    0.983f,  0.999f,  0.489f,
+    0.959f,  0.999f,  0.439f,
+    0.995f,  0.999f,  0.459f,
+    0.914f,  0.999f,  0.476f,
+    0.971f,  0.999f,  0.470f,
+    0.906f,  0.999f,  0.416f,
+    0.976f,  0.999f,  0.433f,
+    0.971f,  0.999f,  0.433f,
+    0.940f,  0.999f,  0.489f,
+    0.997f,  0.999f,  0.464f,
+    0.945f,  0.999f,  0.492f,
+    0.943f,  0.999f,  0.478f,
+    0.979f,  0.999f,  0.405f,
+    0.967f,  0.999f,  0.477f,
+    0.947f,  0.999f,  0.437f,
+    0.955f,  0.999f,  0.442f,
+    0.914f,  0.999f,  0.445f,
+    0.983f,  0.999f,  0.434f,
+    0.922f,  0.999f,  0.474f,
+    0.902f,  0.999f,  0.448f,
+    0.925f,  0.999f,  0.440f,
+    0.917f,  0.999f,  0.438f,
+    0.953f,  0.999f,  0.420f,
+    0.993f,  0.999f,  0.462f,
+    0.973f,  0.999f,  0.457f,
+    0.920f,  0.999f,  0.471f,
+    0.982f,  0.999f,  0.479f
+};
+
+
+
+typedef struct Mesh
+{
+    u32 vertex_array_length;
+    float* vertex_positions;
+    float* vertex_colors;
+    glm::mat4 model_matrix;
+} Mesh;
+
+
+typedef struct GLMesh
+{
+     Mesh* mesh;
+     GLuint vao;
+} GLMesh;
+
+
+typedef struct CubeData
+{
+     Mesh mesh;
+     u32 offset;
+} CubeData;
+
+CubeData createRandomCubeOnASphere(xorshift32_state &xor_state)
+{
+    Mesh cube_mesh;
+    cube_mesh.vertex_array_length = 36 * 3;
+    cube_mesh.vertex_positions = cubeVertices;
+    cube_mesh.vertex_colors = colorData;
+    cube_mesh.model_matrix  = glm::mat4(1.0);
+    u32 base_offset = 100;
+
+    u32 offset = xorshift32(&xor_state);
+    float ratioX = offset / float(UINT_MAX);
+
+    offset = xorshift32(&xor_state);
+    float ratioY = offset / float(UINT_MAX);
+
+    offset = xorshift32(&xor_state);
+    float ratioZ = offset / float(UINT_MAX);
+
+    offset = xorshift32(&xor_state);
+
+    SphericalCoords cube_sphr_coords;
+    cube_sphr_coords.theta = 3.14f * 2 * ratioX;
+    cube_sphr_coords.phi = 3.14f  * ratioY;
+    cube_sphr_coords.radius = 100.0f;
+
+    glm::vec3 cube_pos = getCartesianCoords(cube_sphr_coords);
+
+    /*glm::vec3 cube_pos = glm::vec3(base_offset * ratioX - base_offset,*/
+                                   /*base_offset * ratioY - base_offset,*/
+                                   /*base_offset * ratioZ - base_offset);*/
+
+    cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
+    cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(offset / float(UINT_MAX)));
+    CubeData cube_data;
+
+    cube_data.mesh = cube_mesh;
+    cube_data.offset = offset;
+
+    return cube_data;
+}
+
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (key == GLFW_KEY_W)
     {
         SphericalCoords spherical_coords = getSphericalCoords(global_cam.position);
-        spherical_coords.theta += 0.01f;
+        spherical_coords.theta -= 0.01f;
         global_cam.position = getCartesianCoords(spherical_coords);
     }
-    else if (key == GLFW_KEY_S)
+    else if (key == GLFW_KEY_UP)
     {
+        for (int i=0; i < 10; ++i)
+        {
+            CubeData cube_data = createRandomCubeOnASphere(xor_state);
+            ArrayAppend(cube_data_array, (void*)&cube_data);
+        }
+    }
+    else if (key == GLFW_KEY_DOWN)
+    {
+        for (int i=0; i < 10; ++i)
+        {
+            ArrayPop(cube_data_array);
+        }
     }
 }
 
@@ -50,6 +284,7 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
     last_press_x = xpos;
     last_press_y = ypos;
 }
+
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 {
@@ -78,13 +313,14 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
     }
 }
 
+
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 {
     CoordFrame coord_frame;
     yoffset = fmin(yoffset, 1.0f);
     yoffset = fmax(yoffset, -1.0f);
     updateCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);
-    glm::vec3 offset = coord_frame.direction * (float)yoffset;
+    glm::vec3 offset = coord_frame.direction * (float)yoffset * 1.5f;
     glm::vec3 new_pos = global_cam.position + offset;
     float distance = glm::distance(new_pos, global_cam.target);
     if (distance < 1.0f)
@@ -130,106 +366,12 @@ u8 compileShader(GLuint shader_id, const char* shader_path)
     return 1;
 }
 
-static GLfloat cubeData[] = {
-    -1.0f,-1.0f,-1.0f, // triangle 1 : begin
-    -1.0f,-1.0f, 1.0f,
-    -1.0f, 1.0f, 1.0f, // triangle 1 : end
-    1.0f, 1.0f,-1.0f, // triangle 2 : begin
-    -1.0f,-1.0f,-1.0f,
-    -1.0f, 1.0f,-1.0f, // triangle 2 : end
-    1.0f,-1.0f, 1.0f,
-    -1.0f,-1.0f,-1.0f,
-    1.0f,-1.0f,-1.0f,
-    1.0f, 1.0f,-1.0f,
-    1.0f,-1.0f,-1.0f,
-    -1.0f,-1.0f,-1.0f,
-    -1.0f,-1.0f,-1.0f,
-    -1.0f, 1.0f, 1.0f,
-    -1.0f, 1.0f,-1.0f,
-    1.0f,-1.0f, 1.0f,
-    -1.0f,-1.0f, 1.0f,
-    -1.0f,-1.0f,-1.0f,
-    -1.0f, 1.0f, 1.0f,
-    -1.0f,-1.0f, 1.0f,
-    1.0f,-1.0f, 1.0f,
-    1.0f, 1.0f, 1.0f,
-    1.0f,-1.0f,-1.0f,
-    1.0f, 1.0f,-1.0f,
-    1.0f,-1.0f,-1.0f,
-    1.0f, 1.0f, 1.0f,
-    1.0f,-1.0f, 1.0f,
-    1.0f, 1.0f, 1.0f,
-    1.0f, 1.0f,-1.0f,
-    -1.0f, 1.0f,-1.0f,
-    1.0f, 1.0f, 1.0f,
-    -1.0f, 1.0f,-1.0f,
-    -1.0f, 1.0f, 1.0f,
-    1.0f, 1.0f, 1.0f,
-    -1.0f, 1.0f, 1.0f,
-    1.0f,-1.0f, 1.0f
-};
-
-
-static GLfloat colorData[] = {
-    0.583f,  0.771f,  0.014f,
-    0.609f,  0.115f,  0.436f,
-    0.327f,  0.483f,  0.844f,
-    0.822f,  0.569f,  0.201f,
-    0.435f,  0.602f,  0.223f,
-    0.310f,  0.747f,  0.185f,
-    0.597f,  0.770f,  0.761f,
-    0.559f,  0.436f,  0.730f,
-    0.359f,  0.583f,  0.152f,
-    0.483f,  0.596f,  0.789f,
-    0.559f,  0.861f,  0.639f,
-    0.195f,  0.548f,  0.859f,
-    0.014f,  0.184f,  0.576f,
-    0.771f,  0.328f,  0.970f,
-    0.406f,  0.615f,  0.116f,
-    0.676f,  0.977f,  0.133f,
-    0.971f,  0.572f,  0.833f,
-    0.140f,  0.616f,  0.489f,
-    0.997f,  0.513f,  0.064f,
-    0.945f,  0.719f,  0.592f,
-    0.543f,  0.021f,  0.978f,
-    0.279f,  0.317f,  0.505f,
-    0.167f,  0.620f,  0.077f,
-    0.347f,  0.857f,  0.137f,
-    0.055f,  0.953f,  0.042f,
-    0.714f,  0.505f,  0.345f,
-    0.783f,  0.290f,  0.734f,
-    0.722f,  0.645f,  0.174f,
-    0.302f,  0.455f,  0.848f,
-    0.225f,  0.587f,  0.040f,
-    0.517f,  0.713f,  0.338f,
-    0.053f,  0.959f,  0.120f,
-    0.393f,  0.621f,  0.362f,
-    0.673f,  0.211f,  0.457f,
-    0.820f,  0.883f,  0.371f,
-    0.982f,  0.099f,  0.879f
-};
-
 
 typedef struct Transform
 {
      glm::mat4 matrix;
 } Transform;
 
-
-typedef struct Mesh
-{
-    u32 vertex_count;
-    float* vertex_positions;
-    float* vertex_colors;
-    glm::mat4 model_matrix;
-} Mesh;
-
-
-typedef struct GLMesh
-{
-     Mesh* mesh;
-     GLuint vao;
-} GLMesh;
 
 
 void drawGLMesh(GLMesh &gl_mesh, GLuint shader_program_id, glm::mat4 vp)
@@ -243,10 +385,11 @@ void drawGLMesh(GLMesh &gl_mesh, GLuint shader_program_id, glm::mat4 vp)
 
     glUseProgram(shader_program_id);
     glBindVertexArray(gl_mesh.vao);
-    glDrawArrays(GL_TRIANGLES, 0, gl_mesh.mesh->vertex_count / 3);
+    glDrawArrays(GL_TRIANGLES, 0, gl_mesh.mesh->vertex_array_length / 3);
 };
 
-GLMesh prepareMeshForRendering(Mesh &mesh)
+
+GLMesh prepareMeshForRendering(Mesh &mesh, u32 vector_dimensions)
 {
     GLuint vao;
     glGenVertexArrays(1, &vao);
@@ -257,23 +400,23 @@ GLMesh prepareMeshForRendering(Mesh &mesh)
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
     glBufferData(GL_ARRAY_BUFFER,
-                 mesh.vertex_count * sizeof(float),
+                 mesh.vertex_array_length * sizeof(float),
                  mesh.vertex_positions,
                  GL_STATIC_DRAW);
 
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+    glVertexAttribPointer(0, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
 
     GLuint colorbuffer;
     glGenBuffers(1, &colorbuffer);
     glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
     glBufferData(GL_ARRAY_BUFFER,
-                 mesh.vertex_count * sizeof(float),
+                 mesh.vertex_array_length * sizeof(float),
                  mesh.vertex_colors,
                  GL_STATIC_DRAW);
 
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+    glVertexAttribPointer(1, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
 
     GLMesh gl_mesh;
     gl_mesh.mesh = &mesh;
@@ -281,6 +424,11 @@ GLMesh prepareMeshForRendering(Mesh &mesh)
     return gl_mesh;
 
 }
+
+/*void* on_alloc_failed(Array)*/
+/*{*/
+     /*printf("arrray failed");*/
+/*}*/
 
 
 int main()
@@ -334,6 +482,10 @@ int main()
     rv = compileShader(outline_frag_id, "outline.frag");
     assert(rv);
 
+    GLuint noop_vert_id = glCreateShader(GL_VERTEX_SHADER);
+    rv = compileShader(noop_vert_id, "noop.vert");
+    assert(rv);
+
     GLuint default_shader_program_id = glCreateProgram();
     glAttachShader(default_shader_program_id, default_vert_id);
     glAttachShader(default_shader_program_id, default_frag_id);
@@ -344,58 +496,41 @@ int main()
     glAttachShader(outline_shader_program_id, outline_frag_id);
     glLinkProgram(outline_shader_program_id);
 
+    GLuint noop_shader_program_id = glCreateProgram();
+    glAttachShader(noop_shader_program_id, noop_vert_id);
+    glAttachShader(noop_shader_program_id, outline_frag_id);
+    glLinkProgram(noop_shader_program_id);
+
     // WORLD
-    glm::vec3 pos = glm::vec3(5, 0, 0);
+    glm::vec3 pos = glm::vec3(20, 30, 0);
     global_cam.position = pos;
     global_cam.target = glm::vec3(0, 0, 0);
 
-    glm::mat4 Projection = glm::perspective(
-        glm::radians(45.0f),
-        (float)window_width / (float)window_height,
-        0.1f, 10000.0f
-    );
+    u32 max_cubes = 2000;
+    cube_data_array.element_size = sizeof(CubeData);
+    cube_data_array.max_element_count = max_cubes;
+    /*cube_data_array.allocation_failed_callback = on_alloc_failed;*/
+    ArrayInit(cube_data_array);
 
-    Array cube_mesh_array;
-    cube_mesh_array.element_size = sizeof(Mesh);
-    u32 max_cubes = 5000;
-    cube_mesh_array.max_element_count = max_cubes;
-    ArrayInit(cube_mesh_array);
-
-    xorshift32_state xor_state;
     xor_state.a = 10;
-
-    for (int i = 0; i < max_cubes; i++)
-    {
-        Mesh cube_mesh;
-        cube_mesh.vertex_count = 36 * 3;
-        cube_mesh.vertex_positions = cubeData;
-        cube_mesh.vertex_colors = colorData;
-        cube_mesh.model_matrix  = glm::mat4(1.0);
-        u32 base_offset = 100;
-
-        u32 offset = xorshift32(&xor_state);
-        float ratioX = offset / float(INT_MAX);
-
-        offset = xorshift32(&xor_state);
-        float ratioY = offset / float(INT_MAX);
-
-        offset = xorshift32(&xor_state);
-        float ratioZ = offset / float(INT_MAX);
-
-        glm::vec3 cube_pos = glm::vec3(base_offset * ratioX - base_offset,
-                                       base_offset * ratioY - base_offset,
-                                       base_offset * ratioZ - base_offset);
-
-        cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
-        ArrayAppend(cube_mesh_array, (void*)&cube_mesh);
-    }
 
     double current_frame = glfwGetTime();
     double last_frame= current_frame;
 
+    // Instance mesh
+    Mesh cube_mesh;
+    cube_mesh.vertex_array_length = 36 * 3;
+    cube_mesh.vertex_positions = cubeVertices;
+    cube_mesh.vertex_colors = colorData;
+    cube_mesh.model_matrix  = glm::mat4(1.0);
+    GLMesh glmesh = prepareMeshForRendering(cube_mesh, 3);
 
-    Mesh* mesh = (Mesh*)ArrayGetIndex(cube_mesh_array, 0);
-    GLMesh glmesh = prepareMeshForRendering(*mesh);
+    Mesh line_mesh;
+    line_mesh.vertex_array_length = 12 * 2;
+    line_mesh.vertex_positions = vertices_position;
+    line_mesh.vertex_colors = lineColor;
+    line_mesh.model_matrix  = glm::mat4(1.0);
+    GLMesh lineGlmesh = prepareMeshForRendering(line_mesh, 2);
 
     while (!glfwWindowShouldClose(window)) {
         current_frame = glfwGetTime();
@@ -443,12 +578,20 @@ int main()
                 global_cam.position, global_cam.target);
         } // END USER INTERACTION
 
+        int width, height;
+        glfwGetWindowSize(window, &width, &height);
+
+        glm::mat4 Projection = glm::perspective(
+            glm::radians(45.0f),
+            (float)width / (float)height,
+            0.1f, 10000.0f
+        );
+
         glm::mat4 View = glm::lookAt(
             global_cam.position,
             global_cam.target,
             coord_frame.up
         );
-
 
         glm::mat4 vp = Projection * View;
 
@@ -457,27 +600,42 @@ int main()
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        for (int i=0; i < cube_mesh_array.max_element_count; i++)
+        for (int i=0; i < cube_data_array.element_count; i++)
         {
+            CubeData* cube_data= (CubeData*)ArrayGetIndex(cube_data_array, i);
 
-            /*u32 offset = xorshift32(&xor_state);*/
-            /*float ratioX = offset / float(INT_MAX);*/
+            u32 offset = cube_data->offset;
+            float ratioX = offset / float(UINT_MAX);
 
-            /*float xoffset = sin(current_frame * ratioX) * delta_time;*/
-            /*glm::vec3 offset_vec = glm::vec3(xoffset, 0, 0);*/
+            glm::vec3 position = cube_data->mesh.model_matrix[3];
+            SphericalCoords spherical_coords = getSphericalCoords(position);
+            spherical_coords.theta += (1 - ratioX) * 0.01f ;
+            glm::vec3 new_position = getCartesianCoords(spherical_coords);
+            glm::vec3 diff = new_position - position;
 
-            /*mesh->model_matrix = glm::translate(mesh->model_matrix, offset_vec);*/
-            Mesh* mesh = (Mesh*)ArrayGetIndex(cube_mesh_array, i);
-            glmesh.mesh = mesh;
+            cube_data->mesh.model_matrix = glm::translate(cube_data->mesh.model_matrix, diff);
 
+            glmesh.mesh = &cube_data->mesh;
             drawGLMesh(glmesh, default_shader_program_id, vp);
         }
 
+        /*glMatrixMode(GL_PROJECTION);*/
+        /*glLoadIdentity();*/
+        /*glOrtho(0, width, 0, height, 0, 1);*/
+        /*glLoadIdentity();*/
+
+        glEnable(GL_LINE_SMOOTH);
+
+        glUseProgram(noop_shader_program_id);
+        glBindVertexArray(lineGlmesh.vao);
+        /*glDrawArrays(GL_TRIANGLES, 0, 12);*/
+
+        printf("Array size %i\n", cube_data_array.element_count);
         glfwPollEvents();
         glfwSwapBuffers(window);
     }
 
-    ArrayFree(cube_mesh_array);
+    ArrayFree(cube_data_array);
 
     glfwTerminate();
     return 0;
