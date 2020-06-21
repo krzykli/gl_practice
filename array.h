@@ -4,11 +4,26 @@
 #include "types.h"
 #include <string.h>
 
+void* debug_malloc(size_t size, const char* file, u32 line)
+{
+     printf("Allocating %lu bytes in file:%s:%i\n", size, file, line);
+     return malloc(size);
+}
+
+#ifdef DEBUG
+#define malloc(size) debug_malloc(size, __FILE__, __LINE__)
+#endif
+
+#define ARRAY_ALLOCATION_FAILED_CALLBACK(cb_name) void cb_name(size_t size)
+typedef ARRAY_ALLOCATION_FAILED_CALLBACK(array_allocation_failed_callback);
+
+
 typedef struct Array
 {
     u32 element_size;
     u32 max_element_count;
     u32 element_count;
+    array_allocation_failed_callback *onFailure;
 
     u32 _block_size;
     byte* _base_pointer;
@@ -28,7 +43,8 @@ bool ArrayCheckAppendBounds(Array& arr, u32 count)
 {
     if (arr.element_count + count > arr.max_element_count)
     {
-        printf("Not enough memory to perform addition.");
+        arr.onFailure(32);
+        printf("Not enough memory to perform addition.\n");
         return false;
     }
     return true;
@@ -48,6 +64,7 @@ void ArrayExtend(Array& arr, void* elements, u32 count)
 
 void ArrayAppend(Array& arr, void* element)
 {
+    printf("Array size %i\n", arr.element_count);
     ArrayExtend(arr, element, 1);
 }
 

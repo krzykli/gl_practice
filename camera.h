@@ -4,8 +4,9 @@ typedef struct Camera
 {
     glm::vec3 position;
     glm::vec3 target;
-
+    glm::vec3 up;
 } Camera;
+
 
 typedef struct SphericalCoords
 {
@@ -14,12 +15,19 @@ typedef struct SphericalCoords
     float radius;
 } SphericalCoords;
 
-typedef struct CoordFrame
+
+glm::vec3 getCameraDirection(Camera &cam)
 {
-    glm::vec3 direction;
-    glm::vec3 right;
-    glm::vec3 up;
-} CoordFrame;
+    glm::vec3 direction = glm::normalize(cam.position - cam.target);
+    return direction;
+}
+
+
+glm::vec3 getCameraRightVector(Camera &cam)
+{
+    glm::vec3 right = glm::normalize(glm::cross(glm::vec3(0, 1, 0), getCameraDirection(cam)));
+    return right;
+}
 
 
 glm::vec3 getCartesianCoords(SphericalCoords &sphericalCoords)
@@ -31,6 +39,7 @@ glm::vec3 getCartesianCoords(SphericalCoords &sphericalCoords)
     return glm::vec3(posX, posY, posZ);
 }
 
+
 SphericalCoords getSphericalCoords(glm::vec3 position)
 {
     SphericalCoords coords;
@@ -41,13 +50,8 @@ SphericalCoords getSphericalCoords(glm::vec3 position)
 }
 
 
-void updateCameraCoordinateFrame(CoordFrame &coords, glm::vec3 position, glm::vec3 target)
+void updateCameraCoordinateFrame(Camera &cam)
 {
-    glm::vec3 direction = glm::normalize(position - target);
-    glm::vec3 right = glm::normalize(glm::cross(glm::vec3(0, 1, 0), direction));
-    glm::vec3 up = glm::cross(direction, right);
-
-    coords.direction = direction;
-    coords.right = right;
-    coords.up = up;
+    glm::vec3 up = glm::cross(getCameraDirection(cam), getCameraRightVector(cam));
+    cam.up = up;
 }

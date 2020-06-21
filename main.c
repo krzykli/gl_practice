@@ -9,6 +9,8 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/rotate_vector.hpp>
+#include <glm/gtx/transform.hpp>
 
 #include "types.h"
 #include "camera.h"
@@ -16,8 +18,7 @@
 
 
 static Camera global_cam;
-static double delta_time;
-
+static double delta_time; 
 
 static float cursor_delta_x = 0;
 static float cursor_delta_y = 0;
@@ -26,11 +27,15 @@ static float last_press_y = 0;
 
 static bool rotate_mode = false;
 static bool pan_mode = false;
-static CoordFrame pan_coord_frame;
+
+static glm::vec3 pan_vector_x;
+static glm::vec3 pan_vector_y;
 
 static Array cube_data_array;
 static xorshift32_state xor_state;
 
+const float TWO_M_PI = M_PI*2.0f;
+const float M_PI_OVER_TWO = M_PI/2.0f;
 
 GLfloat vertices_position[24] = {
              0.0, 0.0,
@@ -198,16 +203,31 @@ typedef struct Mesh
 
 typedef struct GLMesh
 {
-     Mesh* mesh;
      GLuint vao;
+     Mesh* mesh;
 } GLMesh;
 
 
 typedef struct CubeData
 {
-     Mesh mesh;
      u32 offset;
+     Mesh mesh;
 } CubeData;
+
+
+CubeData createCube()
+{
+    Mesh cube_mesh;
+    cube_mesh.vertex_array_length = 36 * 3;
+    cube_mesh.vertex_positions = cubeVertices;
+    cube_mesh.vertex_colors = colorData;
+    cube_mesh.model_matrix  = glm::mat4(1.0);
+
+    CubeData cube_data;
+    cube_data.mesh = cube_mesh;
+    cube_data.offset = 0;
+    return cube_data;
+}
 
 CubeData createRandomCubeOnASphere(xorshift32_state &xor_state)
 {
@@ -251,6 +271,43 @@ CubeData createRandomCubeOnASphere(xorshift32_state &xor_state)
 }
 
 
+CubeData createRandomCubeOnAPlane(xorshift32_state &xor_state)
+{
+    Mesh cube_mesh;
+    cube_mesh.vertex_array_length = 36 * 3;
+    cube_mesh.vertex_positions = cubeVertices;
+    cube_mesh.vertex_colors = colorData;
+    cube_mesh.model_matrix  = glm::mat4(1.0);
+    u32 base_offset = 100;
+
+    u32 offset = xorshift32(&xor_state);
+    float ratioX = offset / float(UINT_MAX);
+    ratioX -= .5f;
+
+    offset = xorshift32(&xor_state);
+    float ratioY = offset / float(UINT_MAX);
+    ratioY += .5f;
+
+    offset = xorshift32(&xor_state);
+    float ratioZ = offset / float(UINT_MAX);
+
+    offset = xorshift32(&xor_state);
+
+    glm::vec3 cube_pos = glm::vec3(base_offset * ratioX - base_offset,
+                                   base_offset * ratioY - base_offset,
+                                   0);
+
+    cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
+    cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(offset / float(UINT_MAX)));
+    CubeData cube_data;
+
+    cube_data.mesh = cube_mesh;
+    cube_data.offset = offset;
+
+    return cube_data;
+}
+
+
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (key == GLFW_KEY_W)
@@ -263,16 +320,22 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     {
         for (int i=0; i < 10; ++i)
         {
-            CubeData cube_data = createRandomCubeOnASphere(xor_state);
+            /*CubeData cube_data = createRandomCubeOnASphere(xor_state);*/
+            CubeData cube_data = createRandomCubeOnAPlane(xor_state);
             ArrayAppend(cube_data_array, (void*)&cube_data);
         }
     }
     else if (key == GLFW_KEY_DOWN)
     {
-        for (int i=0; i < 10; ++i)
+        for (int i=1; i < 10; ++i)
         {
             ArrayPop(cube_data_array);
         }
+    }
+    else if(key == GLFW_KEY_F)
+    {
+        global_cam.target = glm::vec3(0.0f, 0.0f, 0.0f);
+        updateCameraCoordinateFrame(global_cam);
     }
 }
 
@@ -304,7 +367,11 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         last_press_x = xpos;
         last_press_y = ypos;
         pan_mode = true;
-        updateCameraCoordinateFrame(pan_coord_frame, global_cam.position, global_cam.target);
+        pan_vector_y = global_cam.up;
+        if (pan_vector_y.y > 0)
+            pan_vector_x = -getCameraRightVector(global_cam);
+        else
+            pan_vector_x = getCameraRightVector(global_cam);
     }
     else if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
     {
@@ -316,11 +383,10 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 {
-    CoordFrame coord_frame;
     yoffset = fmin(yoffset, 1.0f);
     yoffset = fmax(yoffset, -1.0f);
-    updateCameraCoordinateFrame(coord_frame, global_cam.position, global_cam.target);
-    glm::vec3 offset = coord_frame.direction * (float)yoffset * 1.5f;
+    glm::vec3 direction = getCameraDirection(global_cam);
+    glm::vec3 offset = direction * (float)yoffset * 1.5f;
     glm::vec3 new_pos = global_cam.position + offset;
     float distance = glm::distance(new_pos, global_cam.target);
     if (distance < 1.0f)
@@ -365,13 +431,6 @@ u8 compileShader(GLuint shader_id, const char* shader_path)
     }
     return 1;
 }
-
-
-typedef struct Transform
-{
-     glm::mat4 matrix;
-} Transform;
-
 
 
 void drawGLMesh(GLMesh &gl_mesh, GLuint shader_program_id, glm::mat4 vp)
@@ -425,11 +484,10 @@ GLMesh prepareMeshForRendering(Mesh &mesh, u32 vector_dimensions)
 
 }
 
-/*void* on_alloc_failed(Array)*/
-/*{*/
-     /*printf("arrray failed");*/
-/*}*/
-
+void on_array_allocation_failed(size_t size)
+{
+     printf("CUSTOM_CALLBACK ohno");
+}
 
 int main()
 {
@@ -502,15 +560,17 @@ int main()
     glLinkProgram(noop_shader_program_id);
 
     // WORLD
-    glm::vec3 pos = glm::vec3(20, 30, 0);
+    glm::vec3 pos = glm::vec3(0, 0, -30);
     global_cam.position = pos;
     global_cam.target = glm::vec3(0, 0, 0);
+    global_cam.up = glm::vec3(0, 1, 0);
 
-    u32 max_cubes = 2000;
+    u32 max_cubes = 3000;
     cube_data_array.element_size = sizeof(CubeData);
     cube_data_array.max_element_count = max_cubes;
-    /*cube_data_array.allocation_failed_callback = on_alloc_failed;*/
+    cube_data_array.onFailure = on_array_allocation_failed;
     ArrayInit(cube_data_array);
+
 
     xor_state.a = 10;
 
@@ -532,51 +592,11 @@ int main()
     line_mesh.model_matrix  = glm::mat4(1.0);
     GLMesh lineGlmesh = prepareMeshForRendering(line_mesh, 2);
 
+
     while (!glfwWindowShouldClose(window)) {
         current_frame = glfwGetTime();
         delta_time = current_frame - last_frame;
         last_frame = current_frame;
-        CoordFrame coord_frame;
-
-        { // USER INTERACTION
-            glm::vec3 camera_pos = global_cam.position;
-            if (pan_mode)
-            {
-                /*printf("cursor %.8f\n", cursor_delta_x);*/
-                float distance = glm::distance(camera_pos, global_cam.target);
-                float pan_speed_multiplier = distance * 0.001f;
-                float delta_pan_x = cursor_delta_x * pan_speed_multiplier;
-                float delta_pan_y = cursor_delta_y * pan_speed_multiplier;
-                glm::vec3 opposite_right = pan_coord_frame.right * -1.0f;
-                glm::vec3 offset = opposite_right * delta_pan_x + pan_coord_frame.up * delta_pan_y;
-                global_cam.position += offset;
-                global_cam.target += offset;
-                cursor_delta_x = 0;
-                cursor_delta_y = 0;
-            }
-            else if (rotate_mode)
-            {
-                SphericalCoords spherical_coords = getSphericalCoords(global_cam.position);
-
-                float delta_theta = cursor_delta_x * 0.01f;
-                float delta_phi = cursor_delta_y * 0.01f;
-
-                spherical_coords.theta += delta_theta;
-                spherical_coords.phi -= delta_phi;
-
-                if (spherical_coords.phi > M_PI)
-                    spherical_coords.phi = M_PI - 0.00001f;
-                if (spherical_coords.phi < 0)
-                    spherical_coords.phi = 0.000001f;
-
-                global_cam.position = getCartesianCoords(spherical_coords);
-                cursor_delta_x = 0;
-                cursor_delta_y = 0;
-            }
-
-            updateCameraCoordinateFrame(coord_frame,
-                global_cam.position, global_cam.target);
-        } // END USER INTERACTION
 
         int width, height;
         glfwGetWindowSize(window, &width, &height);
@@ -587,17 +607,84 @@ int main()
             0.1f, 10000.0f
         );
 
-        glm::mat4 View = glm::lookAt(
-            global_cam.position,
-            global_cam.target,
-            coord_frame.up
-        );
+        glm::mat4 View = glm::mat4();
+
+        // USER INTERACTION
+        if (pan_mode)
+        {
+            float distance = glm::distance(global_cam.position, global_cam.target);
+            float pan_speed_multiplier = distance * 0.001f;
+            float delta_pan_x = cursor_delta_x * pan_speed_multiplier;
+            float delta_pan_y = cursor_delta_y * pan_speed_multiplier;
+
+            glm::vec3 offset = pan_vector_x * delta_pan_x + pan_vector_y * delta_pan_y;
+            global_cam.position += offset;
+            global_cam.target += offset;
+
+            View = glm::lookAt(
+                global_cam.position,
+                global_cam.target,
+                global_cam.up
+            );
+        }
+        else if(rotate_mode)
+        {
+            // This thread saved me after a long time of having weird
+            // flipping issues at phi 0 or 90
+            // https://stackoverflow.com/questions/54027740/proper-way-to-handle-camera-rotations
+            View = glm::lookAt(
+                global_cam.position,
+                global_cam.target,
+                global_cam.up
+            );
+
+            float delta_theta = cursor_delta_x * 0.01f;
+            float delta_phi = cursor_delta_y * 0.01f;
+            if (delta_theta)
+            {
+                // We can perform world space rotation here, no need to calculate the pivot
+                glm::vec3 pivot = global_cam.target;
+                glm::vec3 axis  = glm::vec3(0, 1, 0);
+                glm::mat4 rotation_matrix = glm::rotate(glm::mat4(1), delta_theta, axis);
+                glm::mat4 rotation_with_pivot = glm::translate(glm::mat4(1), pivot) * rotation_matrix * glm::translate(glm::mat4(1), -pivot);
+                // Since we're working in world space here we need to rotate first
+                View = View * rotation_with_pivot;
+            }
+            if (delta_phi)
+            {
+                // To rotate the camera without flipping we need to rotate
+                // it by moving it to origin and resetting it back.
+                glm::vec3 pivot = glm::vec3(View * glm::vec4(global_cam.target, 1.0f));
+                glm::vec3 axis  = glm::vec3(1, 0, 0);
+                glm::mat4 rotation_matrix = glm::rotate(glm::mat4(1), delta_phi, axis);
+                glm::mat4 rotation_with_pivot = glm::translate(glm::mat4(1), pivot) * rotation_matrix * glm::translate(glm::mat4(1), -pivot);
+                // Apply the rotation after the current view
+                View = rotation_with_pivot * View;
+            }
+        }
+        else
+        {
+            View = glm::lookAt(
+                global_cam.position,
+                global_cam.target,
+                global_cam.up
+            );
+        }
+        cursor_delta_x = 0;
+        cursor_delta_y = 0;
+        // END USER INTERACTION
+
+        // Update camera using the view matrix
+        glm::mat4 camera_world = glm::inverse(View);
+        float targetDist = glm::length(global_cam.target - global_cam.position);
+        global_cam.position = glm::vec3(camera_world[3]);
+        global_cam.target = global_cam.position - glm::vec3(camera_world[2]) * targetDist;
+        global_cam.up = glm::vec3(camera_world[1]);
 
         glm::mat4 vp = Projection * View;
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
-
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         for (int i=0; i < cube_data_array.element_count; i++)
@@ -618,11 +705,12 @@ int main()
             glmesh.mesh = &cube_data->mesh;
             drawGLMesh(glmesh, default_shader_program_id, vp);
         }
+        CubeData originCube = createCube();
+        glmesh.mesh = &originCube.mesh;
+        drawGLMesh(glmesh, default_shader_program_id, vp);
 
-        /*glMatrixMode(GL_PROJECTION);*/
-        /*glLoadIdentity();*/
-        /*glOrtho(0, width, 0, height, 0, 1);*/
-        /*glLoadIdentity();*/
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
 
         glEnable(GL_LINE_SMOOTH);
 
@@ -630,10 +718,10 @@ int main()
         glBindVertexArray(lineGlmesh.vao);
         /*glDrawArrays(GL_TRIANGLES, 0, 12);*/
 
-        printf("Array size %i\n", cube_data_array.element_count);
         glfwPollEvents();
         glfwSwapBuffers(window);
     }
+
 
     ArrayFree(cube_data_array);
 
