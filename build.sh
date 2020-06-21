@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DEBUG=1
+DEBUG=0
 if [ $DEBUG == "1" ]
 then
     echo "*"
@@ -8,6 +8,6 @@ then
     echo "*"
     clang++ -D DEBUG -g -lglew -lglfw -framework OpenGL main.c -o build/build.out
 else
-    clang++ -g -lglew -lglfw -framework OpenGL main.c -o build/build.out
+    clang++ -O2 -g -lglew -lglfw -framework OpenGL main.c -o build/build.out
 fi
 

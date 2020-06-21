@@ -37,43 +37,8 @@ static xorshift32_state xor_state;
 const float TWO_M_PI = M_PI*2.0f;
 const float M_PI_OVER_TWO = M_PI/2.0f;
 
-GLfloat vertices_position[24] = {
-             0.0, 0.0,
-             0.5, 0.0,
-             0.5, 0.5,
 
-             0.0, 0.0,
-             0.0, 0.5,
-             -0.5, 0.5,
-
-             0.0, 0.0,
-             -0.5, 0.0,
-             -0.5, -0.5,
-
-             0.0, 0.0,
-             0.0, -0.5,
-             0.5, -0.5,
-     };
-
-static GLfloat lineColor[] = {
-             0.0, 0.0,
-             0.5, 0.0,
-             0.5, 0.5,
-
-             0.0, 0.0,
-             0.0, 0.5,
-             -0.5, 0.5,
-
-             0.0, 0.0,
-             -0.5, 0.0,
-             -0.5, -0.5,
-
-             0.0, 0.0,
-             0.0, -0.5,
-             0.5, -0.5,
-};
-
-static GLfloat cubeVertices[] = {
+static GLfloat cube_vertices[] = {
     -1.0f,-1.0f,-1.0f, // triangle 1 : begin
     -1.0f,-1.0f, 1.0f,
     -1.0f, 1.0f, 1.0f, // triangle 1 : end
@@ -219,7 +184,7 @@ CubeData createCube()
 {
     Mesh cube_mesh;
     cube_mesh.vertex_array_length = 36 * 3;
-    cube_mesh.vertex_positions = cubeVertices;
+    cube_mesh.vertex_positions = cube_vertices;
     cube_mesh.vertex_colors = colorData;
     cube_mesh.model_matrix  = glm::mat4(1.0);
 
@@ -233,7 +198,7 @@ CubeData createRandomCubeOnASphere(xorshift32_state &xor_state)
 {
     Mesh cube_mesh;
     cube_mesh.vertex_array_length = 36 * 3;
-    cube_mesh.vertex_positions = cubeVertices;
+    cube_mesh.vertex_positions = cube_vertices;
     cube_mesh.vertex_colors = colorData;
     cube_mesh.model_matrix  = glm::mat4(1.0);
     u32 base_offset = 100;
@@ -275,18 +240,17 @@ CubeData createRandomCubeOnAPlane(xorshift32_state &xor_state)
 {
     Mesh cube_mesh;
     cube_mesh.vertex_array_length = 36 * 3;
-    cube_mesh.vertex_positions = cubeVertices;
+    cube_mesh.vertex_positions = cube_vertices;
     cube_mesh.vertex_colors = colorData;
     cube_mesh.model_matrix  = glm::mat4(1.0);
-    u32 base_offset = 100;
+    u32 base_offset = 40;
 
     u32 offset = xorshift32(&xor_state);
     float ratioX = offset / float(UINT_MAX);
     ratioX -= .5f;
 
     offset = xorshift32(&xor_state);
-    float ratioY = offset / float(UINT_MAX);
-    ratioY += .5f;
+    float ratioY = offset / 2 / float(UINT_MAX);
 
     offset = xorshift32(&xor_state);
     float ratioZ = offset / float(UINT_MAX);
@@ -433,7 +397,7 @@ u8 compileShader(GLuint shader_id, const char* shader_path)
 }
 
 
-void drawGLMesh(GLMesh &gl_mesh, GLuint shader_program_id, glm::mat4 vp)
+void drawGLMesh(GLMesh &gl_mesh, GLenum mode, GLuint shader_program_id, glm::mat4 vp)
 {
     glm::mat4 mvp = vp * gl_mesh.mesh->model_matrix;
 
@@ -444,7 +408,7 @@ void drawGLMesh(GLMesh &gl_mesh, GLuint shader_program_id, glm::mat4 vp)
 
     glUseProgram(shader_program_id);
     glBindVertexArray(gl_mesh.vao);
-    glDrawArrays(GL_TRIANGLES, 0, gl_mesh.mesh->vertex_array_length / 3);
+    glDrawArrays(mode, 0, gl_mesh.mesh->vertex_array_length / 3.0f);
 };
 
 
@@ -495,38 +459,39 @@ int main()
     u32 window_width = 640;
     u32 window_height = 480;
 
-    { // GL INIT
-        if (!glfwInit())
-            return -1;
+    // GL INIT
+    if (!glfwInit())
+        return -1;
 
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
-        window = glfwCreateWindow(
-            window_width, window_height, "Hello World", NULL, NULL);
+    window = glfwCreateWindow(
+        window_width, window_height, "Hello World", NULL, NULL);
 
-        if (!window) {
-            glfwTerminate();
-            return -1;
-        }
-        glfwMakeContextCurrent(window);
+    if (!window) {
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
 
-        glewExperimental = GL_TRUE;
-        if (glewInit())
-            return -1;
+    glewExperimental = GL_TRUE;
+    if (glewInit())
+        return -1;
 
-        glfwSetKeyCallback(window, keyCallback);
-        glfwSetCursorPosCallback(window, cursorPositionCallback);
-        glfwSetMouseButtonCallback(window, mouseButtonCallback);
-        glfwSetScrollCallback(window, scrollCallback);
+    glfwSetKeyCallback(window, keyCallback);
+    glfwSetCursorPosCallback(window, cursorPositionCallback);
+    glfwSetMouseButtonCallback(window, mouseButtonCallback);
+    glfwSetScrollCallback(window, scrollCallback);
 
-        printf("OpenGL version supported by this platform: %s\n",
-                glGetString(GL_VERSION));
-        printf("GLSL version supported by this platform: %s\n",
-                glGetString(GL_SHADING_LANGUAGE_VERSION));
-    } // END GL INIT
+    printf("OpenGL version supported by this platform: %s\n",
+            glGetString(GL_VERSION));
+    printf("GLSL version supported by this platform: %s\n",
+            glGetString(GL_SHADING_LANGUAGE_VERSION));
+    // END GL INIT
+
 
     GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
     u8 rv = compileShader(default_vert_id, "default.vert");
@@ -537,7 +502,7 @@ int main()
     assert(rv);
 
     GLuint outline_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(outline_frag_id, "outline.frag");
+    rv = compileShader(outline_frag_id, "default.frag");
     assert(rv);
 
     GLuint noop_vert_id = glCreateShader(GL_VERTEX_SHADER);
@@ -560,10 +525,10 @@ int main()
     glLinkProgram(noop_shader_program_id);
 
     // WORLD
-    glm::vec3 pos = glm::vec3(0, 0, -30);
+    glm::vec3 pos = glm::vec3(5, 5, -5);
     global_cam.position = pos;
     global_cam.target = glm::vec3(0, 0, 0);
-    global_cam.up = glm::vec3(0, 1, 0);
+    updateCameraCoordinateFrame(global_cam);
 
     u32 max_cubes = 3000;
     cube_data_array.element_size = sizeof(CubeData);
@@ -579,19 +544,71 @@ int main()
 
     // Instance mesh
     Mesh cube_mesh;
-    cube_mesh.vertex_array_length = 36 * 3;
-    cube_mesh.vertex_positions = cubeVertices;
+    cube_mesh.vertex_positions = cube_vertices;
+    cube_mesh.vertex_array_length = sizeof(cube_vertices) / sizeof(GLfloat);
     cube_mesh.vertex_colors = colorData;
     cube_mesh.model_matrix  = glm::mat4(1.0);
     GLMesh glmesh = prepareMeshForRendering(cube_mesh, 3);
 
-    Mesh line_mesh;
-    line_mesh.vertex_array_length = 12 * 2;
-    line_mesh.vertex_positions = vertices_position;
-    line_mesh.vertex_colors = lineColor;
-    line_mesh.model_matrix  = glm::mat4(1.0);
-    GLMesh lineGlmesh = prepareMeshForRendering(line_mesh, 2);
+    byte line_count = 22;
+    u32 size = line_count * 2 * 3;
 
+    GLfloat grid_verts[size];
+    GLfloat grid_color[size];
+    int x_min = -5;
+    int x_max = 5;
+
+    int z_min = -5;
+    int z_max = 5;
+    int step = 1;
+
+    int counter = 0;
+    for (int i=0; i < size / 2; i += 6)
+    {
+        counter = i / 6;
+
+        grid_verts[i] = x_min;
+        grid_verts[i+1] = 0;
+        grid_verts[i+2] = z_min + counter * step;
+
+        grid_verts[i+3] = x_max;
+        grid_verts[i+4] = 0;
+        grid_verts[i+5] = z_min + counter * step;
+
+        grid_color[i] = 0.3f;
+        grid_color[i + 1] = 0.5f;
+        grid_color[i + 2] = 0.7f;
+        grid_color[i + 3] = 0.3f;
+        grid_color[i + 4] = 0.5f;
+        grid_color[i + 5] = 0.7f;
+
+    }
+
+    for (byte i=size/2; i < size; i += 6)
+    {
+        int counter2 = i / 6 - counter - 1 ;
+        grid_verts[i] = x_min + counter2 * step;
+        grid_verts[i+1] = 0;
+        grid_verts[i+2] = z_min;
+
+        grid_verts[i+3] = x_min  + counter2 * step;
+        grid_verts[i+4] = 0;
+        grid_verts[i+5] = z_max;
+
+        grid_color[i] = 0.3f;
+        grid_color[i + 1] = 0.5f;
+        grid_color[i + 2] = 0.7f;
+        grid_color[i + 3] = 0.3f;
+        grid_color[i + 4] = 0.5f;
+        grid_color[i + 5] = 0.7f;
+    }
+
+    Mesh line_mesh;
+    line_mesh.vertex_positions = grid_verts;
+    line_mesh.vertex_colors= grid_color;
+    line_mesh.vertex_array_length = sizeof(grid_verts) / sizeof(GLfloat);
+    line_mesh.model_matrix  = glm::mat4(1.0);
+    GLMesh lineGlmesh = prepareMeshForRendering(line_mesh, 3);
 
     while (!glfwWindowShouldClose(window)) {
         current_frame = glfwGetTime();
@@ -687,7 +704,9 @@ int main()
         glEnable(GL_CULL_FACE);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        for (int i=0; i < cube_data_array.element_count; i++)
+        u32 element_count = cube_data_array.element_count;
+
+        for (int i=0; i < element_count; i++)
         {
             CubeData* cube_data= (CubeData*)ArrayGetIndex(cube_data_array, i);
 
@@ -699,24 +718,34 @@ int main()
             spherical_coords.theta += (1 - ratioX) * 0.01f ;
             glm::vec3 new_position = getCartesianCoords(spherical_coords);
             glm::vec3 diff = new_position - position;
+            diff[1] += current_frame/200.0f;
 
             cube_data->mesh.model_matrix = glm::translate(cube_data->mesh.model_matrix, diff);
 
             glmesh.mesh = &cube_data->mesh;
-            drawGLMesh(glmesh, default_shader_program_id, vp);
+            drawGLMesh(glmesh, GL_TRIANGLES, default_shader_program_id, vp);
+
+            // kill logic
+            if (new_position.y > 200)
+            {
+                /*ArrayGetIndex(cube_data_array, i);*/
+                /*ArrayRemove(cube_data_array, i);*/
+            }
         }
-        CubeData originCube = createCube();
+
+;       CubeData originCube = createCube();
         glmesh.mesh = &originCube.mesh;
-        drawGLMesh(glmesh, default_shader_program_id, vp);
+        originCube.mesh.model_matrix = glm::translate(originCube.mesh.model_matrix,
+                                                      glm::vec3(0, 1,0));
+        drawGLMesh(glmesh, GL_TRIANGLES, default_shader_program_id, vp);
 
         glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-
         glEnable(GL_LINE_SMOOTH);
 
+        // World grid
         glUseProgram(noop_shader_program_id);
         glBindVertexArray(lineGlmesh.vao);
-        /*glDrawArrays(GL_TRIANGLES, 0, 12);*/
+        drawGLMesh(lineGlmesh, GL_LINES, noop_shader_program_id, vp);
 
         glfwPollEvents();
         glfwSwapBuffers(window);
