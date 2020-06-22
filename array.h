@@ -10,12 +10,26 @@ void* debug_malloc(size_t size, const char* file, u32 line)
      return malloc(size);
 }
 
+void* debug_realloc(void* ptr, size_t size, const char* file, u32 line)
+{
+     printf("Reallocating %lu bytes in file:%s:%i\n", size, file, line);
+     return realloc(ptr, size);
+}
+
+void debug_free(void* ptr, const char* file, u32 line)
+{
+     printf("Freeing memory location %s", (byte*)ptr);
+     return free(ptr);
+}
+
 #ifdef DEBUG
-#define malloc(size) debug_malloc(size, __FILE__, __LINE__)
+    #define malloc(size) debug_malloc(size, __FILE__, __LINE__)
+    #define realloc(ptr, size) debug_realloc(ptr, size, __FILE__, __LINE__)
+    #define free(ptr) debug_free(ptr, __FILE__, __LINE__)
 #endif
 
-#define ARRAY_ALLOCATION_FAILED_CALLBACK(cb_name) void cb_name(size_t size)
-typedef ARRAY_ALLOCATION_FAILED_CALLBACK(array_allocation_failed_callback);
+#define RESIZE_CALLBACK(cb_name) size_t cb_name(void* arr)
+typedef RESIZE_CALLBACK(resize_callback);
 
 
 typedef struct Array
@@ -23,7 +37,7 @@ typedef struct Array
     u32 element_size;
     u32 max_element_count;
     u32 element_count;
-    array_allocation_failed_callback *onFailure;
+    resize_callback *resize_func;
 
     u32 _block_size;
     byte* _base_pointer;
@@ -39,11 +53,25 @@ void ArrayInit(Array &arr)
 }
 
 
+void ArrayRealloc(Array& arr, size_t new_size)
+{
+    arr._base_pointer = (byte*)realloc(arr._base_pointer, new_size);
+    arr._block_size = new_size;
+    arr.max_element_count = new_size / arr.element_size;
+    arr._head_pointer = arr._base_pointer + arr.element_size * arr.element_count;
+    printf("max element count, %i\n", arr.max_element_count);
+    printf("element count, %i\n", arr.element_count);
+
+}
+
+
+void ArrayResizeNoop() {}
+
+
 bool ArrayCheckAppendBounds(Array& arr, u32 count)
 {
     if (arr.element_count + count > arr.max_element_count)
     {
-        arr.onFailure(32);
         printf("Not enough memory to perform addition.\n");
         return false;
     }
@@ -59,12 +87,17 @@ void ArrayExtend(Array& arr, void* elements, u32 count)
         arr._head_pointer += arr.element_size * count;
         arr.element_count += count;
     }
+    else
+    {
+        //size_t new_size = arr.resize_func(&arr);
+        size_t new_size = arr._block_size * 2;
+        ArrayRealloc(arr, new_size);
+    }
 }
 
 
 void ArrayAppend(Array& arr, void* element)
 {
-    printf("Array size %i\n", arr.element_count);
     ArrayExtend(arr, element, 1);
 }
 

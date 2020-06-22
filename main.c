@@ -448,10 +448,16 @@ GLMesh prepareMeshForRendering(Mesh &mesh, u32 vector_dimensions)
 
 }
 
-void on_array_allocation_failed(size_t size)
+size_t array_defaul_resizer(void* array_pointer)
 {
-     printf("CUSTOM_CALLBACK ohno");
+    Array* arr = (Array*)array_pointer;
+    printf("element size, %i\n", arr->element_size);
+    printf("max element count, %i\n", arr->max_element_count);
+    printf("element count, %i\n", arr->element_count);
+    printf("need twice as much, %i\n", arr->_block_size * 2);
+    return arr->_block_size * 2;
 }
+
 
 int main()
 {
@@ -530,10 +536,10 @@ int main()
     global_cam.target = glm::vec3(0, 0, 0);
     updateCameraCoordinateFrame(global_cam);
 
-    u32 max_cubes = 3000;
+    u32 max_cubes = 100;
     cube_data_array.element_size = sizeof(CubeData);
     cube_data_array.max_element_count = max_cubes;
-    cube_data_array.onFailure = on_array_allocation_failed;
+    cube_data_array.resize_func = array_defaul_resizer;
     ArrayInit(cube_data_array);
 
 
