@@ -425,6 +425,16 @@ void drawGLMesh(GLMesh &gl_mesh, GLenum mode, GLuint shader_program_id, glm::mat
 };
 
 
+typedef struct ColorID
+{
+     u8 r;
+     u8 g;
+     u8 b;
+     u8 a;
+     u32 pass;
+} ColorID;
+
+
 void renderSelectionBuffer(GLFWwindow* window)
 {
     // Instance mesh
@@ -444,7 +454,10 @@ void renderSelectionBuffer(GLFWwindow* window)
     {
         CubeData* cube_data= (CubeData*)ArrayGetIndex(cube_data_array, i);
         glmesh.mesh = &cube_data->mesh;
-        glm::vec3 picker_color = glm::vec3(i % 255, i % 510, i % 765);
+
+        // Create an ID from the memory address of the cube
+        ColorID* cID = (ColorID*)cube_data;
+        glm::vec4 picker_color = glm::vec4(cID->r, cID->g, cID->b, cID->a);
 
         // Draw
         glm::mat4 mvp = vp * glmesh.mesh->model_matrix;
@@ -456,12 +469,13 @@ void renderSelectionBuffer(GLFWwindow* window)
         GLuint picker_id = glGetUniformLocation(
             picker_shader_program_id, "picker_id");
 
-        GLfloat uniform[3] = {
-            (GLfloat)picker_color[0],
-            (GLfloat)picker_color[1],
-            (GLfloat)picker_color[2]
+        GLfloat uniform[4] = {
+            (GLfloat)picker_color[0] / 255.0f,
+            (GLfloat)picker_color[1] / 255.0f,
+            (GLfloat)picker_color[2] / 255.0f,
+            (GLfloat)picker_color[3] / 255.0f,
         };
-        glUniform3f(picker_id, 1, GL_FALSE, uniform[0]);
+        glUniform4fv(picker_id, 1, &uniform[0]);
 
         glUseProgram(picker_shader_program_id);
         glBindVertexArray(glmesh.vao);
@@ -683,7 +697,7 @@ int main()
     rv = compileShader(noop_vert_id, "shaders/noop.vert");
     assert(rv);
 
-    GLuint picker_frag_id = glCreateShader(GL_VERTEX_SHADER);
+    GLuint picker_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
     rv = compileShader(picker_frag_id, "shaders/picker.frag");
     assert(rv);
 
@@ -704,7 +718,7 @@ int main()
 
     picker_shader_program_id = glCreateProgram();
     glAttachShader(picker_shader_program_id, default_vert_id);
-    glAttachShader(picker_shader_program_id, default_frag_id);
+    glAttachShader(picker_shader_program_id, picker_frag_id);
     glLinkProgram(picker_shader_program_id);
 
     // WORLD
@@ -713,7 +727,7 @@ int main()
     global_cam.target = glm::vec3(0, 0, 0);
     updateCameraCoordinateFrame(global_cam);
 
-    u32 max_cubes = 100;
+    u32 max_cubes = 10;
     cube_data_array.element_size = sizeof(CubeData);
     cube_data_array.max_element_count = max_cubes;
     cube_data_array.resize_func = array_defaul_resizer;
