@@ -15,7 +15,9 @@
 #include "types.h"
 #include "camera.h"
 #include "array.h"
+#include "mesh.h"
 
+#include "assets/cube.h"
 
 static Camera global_cam;
 static double delta_time; 
@@ -34,10 +36,12 @@ static bool pan_mode = false;
 static glm::vec3 pan_vector_x;
 static glm::vec3 pan_vector_y;
 
-static Array cube_data_array;
+static Array mesh_data_array;
 static xorshift32_state xor_state;
 
 static bool render_flip = true;
+
+static Mesh* selected_mesh = 0;
 
 const float TWO_M_PI = M_PI*2.0f;
 const float M_PI_OVER_TWO = M_PI/2.0f;
@@ -45,169 +49,10 @@ const float M_PI_OVER_TWO = M_PI/2.0f;
 GLuint picker_shader_program_id;
 
 
-static GLfloat cube_vertices[] = {
-    -1.0f,-1.0f,-1.0f, // triangle 1 : begin
-    -1.0f,-1.0f, 1.0f,
-    -1.0f, 1.0f, 1.0f, // triangle 1 : end
-    1.0f, 1.0f,-1.0f, // triangle 2 : begin
-    -1.0f,-1.0f,-1.0f,
-    -1.0f, 1.0f,-1.0f, // triangle 2 : end
-    1.0f,-1.0f, 1.0f,
-    -1.0f,-1.0f,-1.0f,
-    1.0f,-1.0f,-1.0f,
-    1.0f, 1.0f,-1.0f,
-    1.0f,-1.0f,-1.0f,
-    -1.0f,-1.0f,-1.0f,
-    -1.0f,-1.0f,-1.0f,
-    -1.0f, 1.0f, 1.0f,
-    -1.0f, 1.0f,-1.0f,
-    1.0f,-1.0f, 1.0f,
-    -1.0f,-1.0f, 1.0f,
-    -1.0f,-1.0f,-1.0f,
-    -1.0f, 1.0f, 1.0f,
-    -1.0f,-1.0f, 1.0f,
-    1.0f,-1.0f, 1.0f,
-    1.0f, 1.0f, 1.0f,
-    1.0f,-1.0f,-1.0f,
-    1.0f, 1.0f,-1.0f,
-    1.0f,-1.0f,-1.0f,
-    1.0f, 1.0f, 1.0f,
-    1.0f,-1.0f, 1.0f,
-    1.0f, 1.0f, 1.0f,
-    1.0f, 1.0f,-1.0f,
-    -1.0f, 1.0f,-1.0f,
-    1.0f, 1.0f, 1.0f,
-    -1.0f, 1.0f,-1.0f,
-    -1.0f, 1.0f, 1.0f,
-    1.0f, 1.0f, 1.0f,
-    -1.0f, 1.0f, 1.0f,
-    1.0f,-1.0f, 1.0f
-};
 
-static GLfloat colorData[] = {
-    0.583f,  0.771f,  0.014f,
-    0.609f,  0.115f,  0.436f,
-    0.327f,  0.483f,  0.844f,
-    0.822f,  0.569f,  0.201f,
-    0.435f,  0.602f,  0.223f,
-    0.310f,  0.747f,  0.185f,
-    0.597f,  0.770f,  0.761f,
-    0.559f,  0.436f,  0.730f,
-    0.359f,  0.583f,  0.152f,
-    0.483f,  0.596f,  0.789f,
-    0.559f,  0.861f,  0.639f,
-    0.195f,  0.548f,  0.859f,
-    0.014f,  0.184f,  0.576f,
-    0.771f,  0.328f,  0.970f,
-    0.406f,  0.615f,  0.116f,
-    0.676f,  0.977f,  0.133f,
-    0.971f,  0.572f,  0.833f,
-    0.140f,  0.616f,  0.489f,
-    0.997f,  0.513f,  0.064f,
-    0.945f,  0.719f,  0.592f,
-    0.543f,  0.021f,  0.978f,
-    0.279f,  0.317f,  0.505f,
-    0.167f,  0.620f,  0.077f,
-    0.347f,  0.857f,  0.137f,
-    0.055f,  0.953f,  0.042f,
-    0.714f,  0.505f,  0.345f,
-    0.783f,  0.290f,  0.734f,
-    0.722f,  0.645f,  0.174f,
-    0.302f,  0.455f,  0.848f,
-    0.225f,  0.587f,  0.040f,
-    0.517f,  0.713f,  0.338f,
-    0.053f,  0.959f,  0.120f,
-    0.393f,  0.621f,  0.362f,
-    0.673f,  0.211f,  0.457f,
-    0.820f,  0.883f,  0.371f,
-    0.982f,  0.099f,  0.879f
-};
-
-static GLfloat colorData1[] = {
-    0.983f,  0.999f,  0.414f,
-    0.909f,  0.999f,  0.436f,
-    0.927f,  0.999f,  0.444f,
-    0.922f,  0.999f,  0.401f,
-    0.935f,  0.999f,  0.423f,
-    0.910f,  0.999f,  0.485f,
-    0.997f,  0.999f,  0.461f,
-    0.959f,  0.999f,  0.430f,
-    0.959f,  0.999f,  0.452f,
-    0.983f,  0.999f,  0.489f,
-    0.959f,  0.999f,  0.439f,
-    0.995f,  0.999f,  0.459f,
-    0.914f,  0.999f,  0.476f,
-    0.971f,  0.999f,  0.470f,
-    0.906f,  0.999f,  0.416f,
-    0.976f,  0.999f,  0.433f,
-    0.971f,  0.999f,  0.433f,
-    0.940f,  0.999f,  0.489f,
-    0.997f,  0.999f,  0.464f,
-    0.945f,  0.999f,  0.492f,
-    0.943f,  0.999f,  0.478f,
-    0.979f,  0.999f,  0.405f,
-    0.967f,  0.999f,  0.477f,
-    0.947f,  0.999f,  0.437f,
-    0.955f,  0.999f,  0.442f,
-    0.914f,  0.999f,  0.445f,
-    0.983f,  0.999f,  0.434f,
-    0.922f,  0.999f,  0.474f,
-    0.902f,  0.999f,  0.448f,
-    0.925f,  0.999f,  0.440f,
-    0.917f,  0.999f,  0.438f,
-    0.953f,  0.999f,  0.420f,
-    0.993f,  0.999f,  0.462f,
-    0.973f,  0.999f,  0.457f,
-    0.920f,  0.999f,  0.471f,
-    0.982f,  0.999f,  0.479f
-};
-
-
-
-typedef struct Mesh
+Mesh createRandomCubeOnASphere(xorshift32_state &xor_state)
 {
-    u32 vertex_array_length;
-    float* vertex_positions;
-    float* vertex_colors;
-    glm::mat4 model_matrix;
-} Mesh;
-
-
-typedef struct GLMesh
-{
-     GLuint vao;
-     Mesh* mesh;
-} GLMesh;
-
-
-typedef struct CubeData
-{
-     u32 offset;
-     Mesh mesh;
-} CubeData;
-
-
-CubeData createCube()
-{
-    Mesh mesh;
-    mesh.vertex_array_length = 36 * 3;
-    mesh.vertex_positions = cube_vertices;
-    mesh.vertex_colors = colorData;
-    mesh.model_matrix  = glm::mat4(1.0);
-
-    CubeData cube_data;
-    cube_data.mesh = mesh;
-    cube_data.offset = 0;
-    return cube_data;
-}
-
-CubeData createRandomCubeOnASphere(xorshift32_state &xor_state)
-{
-    Mesh cube_mesh;
-    cube_mesh.vertex_array_length = 36 * 3;
-    cube_mesh.vertex_positions = cube_vertices;
-    cube_mesh.vertex_colors = colorData;
-    cube_mesh.model_matrix  = glm::mat4(1.0);
+    Mesh cube_mesh = cube_create_mesh();
     u32 base_offset = 100;
 
     u32 offset = xorshift32(&xor_state);
@@ -228,28 +73,16 @@ CubeData createRandomCubeOnASphere(xorshift32_state &xor_state)
 
     glm::vec3 cube_pos = getCartesianCoords(cube_sphr_coords);
 
-    /*glm::vec3 cube_pos = glm::vec3(base_offset * ratioX - base_offset,*/
-                                   /*base_offset * ratioY - base_offset,*/
-                                   /*base_offset * ratioZ - base_offset);*/
-
     cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
     cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(offset / float(UINT_MAX)));
-    CubeData cube_data;
 
-    cube_data.mesh = cube_mesh;
-    cube_data.offset = offset;
-
-    return cube_data;
+    return cube_mesh;
 }
 
 
-CubeData createRandomCubeOnAPlane(xorshift32_state &xor_state)
+Mesh createRandomCubeOnAPlane(xorshift32_state &xor_state)
 {
-    Mesh cube_mesh;
-    cube_mesh.vertex_array_length = 36 * 3;
-    cube_mesh.vertex_positions = cube_vertices;
-    cube_mesh.vertex_colors = colorData;
-    cube_mesh.model_matrix  = glm::mat4(1.0);
+    Mesh cube_mesh = cube_create_mesh();
     u32 base_offset = 40;
 
     u32 offset = xorshift32(&xor_state);
@@ -270,12 +103,8 @@ CubeData createRandomCubeOnAPlane(xorshift32_state &xor_state)
 
     cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
     cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(offset / float(UINT_MAX)));
-    CubeData cube_data;
 
-    cube_data.mesh = cube_mesh;
-    cube_data.offset = offset;
-
-    return cube_data;
+    return cube_mesh;
 }
 
 
@@ -374,7 +203,7 @@ glm::mat4 get_view_matrix(int width, int height)
     return vp;
 }
 
-GLMesh prepareMeshForRendering(Mesh &mesh, u32 vector_dimensions)
+GLMesh create_gl_mesh_instance(Mesh &mesh, u32 vector_dimensions)
 {
     GLuint vao;
     glGenVertexArrays(1, &vao);
@@ -431,33 +260,44 @@ typedef struct ColorID
      u8 g;
      u8 b;
      u8 a;
-     u32 pass;
 } ColorID;
 
 
-void renderSelectionBuffer(GLFWwindow* window)
+void decompose_u32(u32 number, byte* array)
+{
+    array[0] = number & 0xFF; 
+    array[1] = (number >> 8) & 0xFF;
+    array[2] = (number >> 16) & 0xFF;
+    array[3] = (number >> 24) & 0xFF;
+}
+
+
+void render_selection_buffer(GLFWwindow* window)
 {
     // Instance mesh
     Mesh mesh_instance;
     mesh_instance.vertex_positions = cube_vertices;
     mesh_instance.vertex_array_length = sizeof(cube_vertices) / sizeof(GLfloat);
-    mesh_instance.vertex_colors = colorData;
+    mesh_instance.vertex_colors = cube_colors;
     mesh_instance.model_matrix  = glm::mat4(1.0);
-    GLMesh glmesh = prepareMeshForRendering(mesh_instance, 3);
+    GLMesh glmesh = create_gl_mesh_instance(mesh_instance, 3);
 
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glm::mat4 vp = get_view_matrix(window_width, window_height);
 
-    u32 element_count = cube_data_array.element_count;
-    for (int i=0; i < element_count; i++)
+    u32 element_count = mesh_data_array.element_count;
+    u32 mesh_index = 1;
+    for (u32 i=0; i < element_count; i++)
     {
-        CubeData* cube_data= (CubeData*)ArrayGetIndex(cube_data_array, i);
-        glmesh.mesh = &cube_data->mesh;
+        Mesh* cube_mesh= (Mesh*)ArrayGetIndex(mesh_data_array, i);
+        glmesh.mesh = cube_mesh;
+
+        byte bytes[4];
+        decompose_u32(mesh_index, bytes);
 
         // Create an ID from the memory address of the cube
-        ColorID* cID = (ColorID*)cube_data;
-        glm::vec4 picker_color = glm::vec4(cID->r, cID->g, cID->b, cID->a);
+        glm::vec4 picker_color = glm::vec4(bytes[0], bytes[1], bytes[2], bytes[3]);
 
         // Draw
         glm::mat4 mvp = vp * glmesh.mesh->model_matrix;
@@ -480,7 +320,7 @@ void renderSelectionBuffer(GLFWwindow* window)
         glUseProgram(picker_shader_program_id);
         glBindVertexArray(glmesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, glmesh.mesh->vertex_array_length / 3.0f);
-
+        mesh_index++;
     }
     glfwSwapBuffers(window);
 }
@@ -491,7 +331,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
     // TODO(kk): cleanup actions
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && !mods)
     {
-        renderSelectionBuffer(window);
+        render_selection_buffer(window);
 
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
@@ -510,7 +350,11 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         glReadBuffer(GL_FRONT);
         byte res[4];
         glReadPixels(x_px, y_px, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &res);
-        printf("Picked %i %i %i %i\n", res[0], res[1], res[2], res[3]);
+        u32 mesh_id = *res;
+        if(mesh_id)
+            selected_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id);
+        else
+            selected_mesh = 0;
         glfwSwapBuffers(window);
     }
 
@@ -546,27 +390,44 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 }
 
 
+void focus_on_mesh(Mesh* mesh)
+{
+    glm::vec3 target = mesh->model_matrix[3];
+    // move towards the target
+    global_cam.target = target;
+    glm::vec3 dir = glm::normalize(global_cam.position - target);
+    glm::vec3 new_pos = target + 10.0f * dir;
+    global_cam.position = new_pos;
+}
+
+
+
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (key == GLFW_KEY_UP)
     {
         for (int i=0; i < 10; ++i)
         {
-            /*CubeData cube_data = createRandomCubeOnASphere(xor_state);*/
-            CubeData cube_data = createRandomCubeOnAPlane(xor_state);
-            ArrayAppend(cube_data_array, (void*)&cube_data);
+            /*Mesh cube_mesh = createRandomCubeOnASphere(xor_state);*/
+            Mesh cube_mesh = createRandomCubeOnAPlane(xor_state);
+            ArrayAppend(mesh_data_array, (void*)&cube_mesh);
         }
     }
     else if (key == GLFW_KEY_DOWN)
     {
         for (int i=1; i < 10; ++i)
         {
-            ArrayPop(cube_data_array);
+            ArrayPop(mesh_data_array);
         }
     }
     else if (key == GLFW_KEY_F and action == GLFW_PRESS)
     {
-        global_cam.target = glm::vec3(0.0f, 0.0f, 0.0f);
+        if (selected_mesh)
+        {
+            focus_on_mesh(selected_mesh);
+        }
+        else
+            global_cam.target = glm::vec3(0.0f, 0.0f, 0.0f);
         updateCameraCoordinateFrame(global_cam);
 
     }
@@ -575,6 +436,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         render_flip = !render_flip;
     }
 }
+
 
 
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
@@ -727,11 +589,11 @@ int main()
     global_cam.target = glm::vec3(0, 0, 0);
     updateCameraCoordinateFrame(global_cam);
 
-    u32 max_cubes = 10;
-    cube_data_array.element_size = sizeof(CubeData);
-    cube_data_array.max_element_count = max_cubes;
-    cube_data_array.resize_func = array_defaul_resizer;
-    ArrayInit(cube_data_array);
+    u32 max_cubes = 100;
+    mesh_data_array.element_size = sizeof(Mesh);
+    mesh_data_array.max_element_count = max_cubes;
+    mesh_data_array.resize_func = array_defaul_resizer;
+    ArrayInit(mesh_data_array);
 
 
     xor_state.a = 10;
@@ -743,9 +605,9 @@ int main()
     Mesh cube_mesh;
     cube_mesh.vertex_positions = cube_vertices;
     cube_mesh.vertex_array_length = sizeof(cube_vertices) / sizeof(GLfloat);
-    cube_mesh.vertex_colors = colorData;
+    cube_mesh.vertex_colors = cube_colors;
     cube_mesh.model_matrix  = glm::mat4(1.0);
-    GLMesh glmesh = prepareMeshForRendering(cube_mesh, 3);
+    GLMesh glmesh = create_gl_mesh_instance(cube_mesh, 3);
 
     byte line_count = 22;
     u32 size = line_count * 2 * 3;
@@ -805,12 +667,12 @@ int main()
     line_mesh.vertex_colors= grid_color;
     line_mesh.vertex_array_length = sizeof(grid_verts) / sizeof(GLfloat);
     line_mesh.model_matrix  = glm::mat4(1.0);
-    GLMesh lineGlmesh = prepareMeshForRendering(line_mesh, 3);
+    GLMesh lineGlmesh = create_gl_mesh_instance(line_mesh, 3);
 
-    CubeData originCube = createCube();
-    originCube.mesh.model_matrix = glm::translate(originCube.mesh.model_matrix,
-                                                  glm::vec3(0, 1, 0));
-    ArrayAppend(cube_data_array, (void*)&originCube);
+    Mesh origin_cube = cube_create_mesh();
+    origin_cube.model_matrix = glm::translate(origin_cube.model_matrix,
+                                              glm::vec3(0, 1, 0));
+    ArrayAppend(mesh_data_array, (void*)&origin_cube);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -828,33 +690,33 @@ int main()
         glfwGetWindowSize(window, &window_width, &window_height);
         glm::mat4 vp = get_view_matrix(window_width, window_height);
 
-        u32 element_count = cube_data_array.element_count;
+        u32 element_count = mesh_data_array.element_count;
 
         if (render_flip)
         {
             for (int i=0; i < element_count; i++)
             {
-                CubeData* cube_data= (CubeData*)ArrayGetIndex(cube_data_array, i);
-                u32 offset = cube_data->offset;
+                Mesh* cube_mesh= (Mesh*)ArrayGetIndex(mesh_data_array, i);
+                u32 offset = 0;
                 float ratioX = offset / float(UINT_MAX);
 
-                glm::vec3 position = cube_data->mesh.model_matrix[3];
+                glm::vec3 position = cube_mesh->model_matrix[3];
                 SphericalCoords spherical_coords = getSphericalCoords(position);
                 spherical_coords.theta += (1 - ratioX) * 0.01f ;
                 glm::vec3 new_position = getCartesianCoords(spherical_coords);
                 glm::vec3 diff = new_position - position;
                 diff[1] += current_frame / 200.0f;
 
-                cube_data->mesh.model_matrix = glm::translate(cube_data->mesh.model_matrix, diff);
+                cube_mesh->model_matrix = glm::translate(cube_mesh->model_matrix, diff);
 
-                glmesh.mesh = &cube_data->mesh;
+                glmesh.mesh = cube_mesh;
                 drawGLMesh(glmesh, GL_TRIANGLES, default_shader_program_id, vp);
 
                 // kill logic
                 if (new_position.y > 200)
                 {
-                    /*ArrayGetIndex(cube_data_array, i);*/
-                    /*ArrayRemove(cube_data_array, i);*/
+                    /*ArrayGetIndex(mesh_data_array, i);*/
+                    /*ArrayRemove(mesh_data_array, i);*/
                 }
             }
 
@@ -865,12 +727,12 @@ int main()
             glfwSwapBuffers(window);
         }
         else
-            renderSelectionBuffer(window);
+            render_selection_buffer(window);
         glfwPollEvents();
     }
 
 
-    ArrayFree(cube_data_array);
+    ArrayFree(mesh_data_array);
 
     glfwTerminate();
     return 0;
