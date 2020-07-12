@@ -17,6 +17,7 @@
 #include "array.h"
 #include "mesh.h"
 
+#include "assets/grid.h"
 #include "assets/cube.h"
 
 static Camera global_cam;
@@ -41,13 +42,14 @@ static xorshift32_state xor_state;
 
 static bool render_flip = true;
 
-static Mesh* selected_mesh = 0;
+static Mesh* selected_mesh = NULL;
+static Mesh* mouse_over_mesh = NULL;
 
 const float TWO_M_PI = M_PI*2.0f;
 const float M_PI_OVER_TWO = M_PI/2.0f;
 
 GLuint picker_shader_program_id;
-
+GLuint selection_shader_program_id;
 
 
 Mesh createRandomCubeOnASphere(xorshift32_state &xor_state)
@@ -108,14 +110,37 @@ Mesh createRandomCubeOnAPlane(xorshift32_state &xor_state)
 }
 
 
-
-static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
+typedef struct v2i
 {
-    cursor_delta_x = xpos - last_press_x;
-    cursor_delta_y = ypos - last_press_y;
-    last_press_x = xpos;
-    last_press_y = ypos;
+    u32 x;
+    u32 y;
+} v2i;
+
+
+v2i get_mouse_pixel_coords(GLFWwindow* window)
+{
+    double xpos, ypos;
+    glfwGetCursorPos(window, &xpos, &ypos);
+
+    int frame_width, frame_height;
+    glfwGetFramebufferSize(window, &frame_width, &frame_height);
+
+    int window_width, window_height;
+    glfwGetWindowSize(window, &window_width, &window_height);
+
+    float hdpi_factor = float(frame_width/ window_width);
+    xpos *= hdpi_factor;
+    ypos *= hdpi_factor;
+
+    int x_px = (int)(xpos);
+    int y_px = (int)(frame_height - ypos);
+
+    v2i result = {x_px, y_px};
+
+    return result;
 }
+
+
 
 glm::mat4 get_view_matrix(int width, int height)
 {
@@ -254,15 +279,6 @@ void drawGLMesh(GLMesh &gl_mesh, GLenum mode, GLuint shader_program_id, glm::mat
 };
 
 
-typedef struct ColorID
-{
-     u8 r;
-     u8 g;
-     u8 b;
-     u8 a;
-} ColorID;
-
-
 void decompose_u32(u32 number, byte* array)
 {
     array[0] = number & 0xFF; 
@@ -287,16 +303,14 @@ void render_selection_buffer(GLFWwindow* window)
     glm::mat4 vp = get_view_matrix(window_width, window_height);
 
     u32 element_count = mesh_data_array.element_count;
-    u32 mesh_index = 1;
     for (u32 i=0; i < element_count; i++)
     {
         Mesh* cube_mesh= (Mesh*)ArrayGetIndex(mesh_data_array, i);
         glmesh.mesh = cube_mesh;
 
         byte bytes[4];
-        decompose_u32(mesh_index, bytes);
-
-        // Create an ID from the memory address of the cube
+        decompose_u32(i, bytes);
+        // Create an ID from mesh index
         glm::vec4 picker_color = glm::vec4(bytes[0], bytes[1], bytes[2], bytes[3]);
 
         // Draw
@@ -320,10 +334,34 @@ void render_selection_buffer(GLFWwindow* window)
         glUseProgram(picker_shader_program_id);
         glBindVertexArray(glmesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, glmesh.mesh->vertex_array_length / 3.0f);
-        mesh_index++;
     }
-    glfwSwapBuffers(window);
 }
+
+
+static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
+{
+    render_selection_buffer(window);
+    cursor_delta_x = xpos - last_press_x;
+    cursor_delta_y = ypos - last_press_y;
+    last_press_x = xpos;
+    last_press_y = ypos;
+
+    v2i px_coords = get_mouse_pixel_coords(window);
+
+    glReadBuffer(GL_BACK);
+    byte res[4];
+    glReadPixels(px_coords.x, px_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &res);
+    u32 mesh_id = *res;
+    if(mesh_id)
+    {
+        mouse_over_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id - 1);
+    }
+    else
+    {
+        mouse_over_mesh = NULL;
+    }
+}
+
 
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
@@ -332,30 +370,22 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && !mods)
     {
         render_selection_buffer(window);
+        v2i pixel_coords = get_mouse_pixel_coords(window);
+        glReadBuffer(GL_BACK);
 
-        double xpos, ypos;
-        glfwGetCursorPos(window, &xpos, &ypos);
-
-        int frame_width, frame_height;
-        glfwGetFramebufferSize(window, &frame_width, &frame_height);
-        int window_width, window_height;
-        glfwGetWindowSize(window, &window_width, &window_height);
-
-        float hdpi_factor = float(frame_width/ window_width);
-        xpos *= hdpi_factor;
-        ypos *= hdpi_factor;
-
-        int x_px = (int)(xpos);
-        int y_px = (int)(frame_height - ypos);
-        glReadBuffer(GL_FRONT);
         byte res[4];
-        glReadPixels(x_px, y_px, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &res);
+        glReadPixels(pixel_coords.x, pixel_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &res);
         u32 mesh_id = *res;
+
         if(mesh_id)
+        {
+            printf("Selected %i\n", mesh_id);
             selected_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id);
+        }
         else
-            selected_mesh = 0;
-        glfwSwapBuffers(window);
+        {
+            selected_mesh = NULL;
+        }
     }
 
     if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && mods & GLFW_MOD_ALT)
@@ -395,9 +425,9 @@ void focus_on_mesh(Mesh* mesh)
     glm::vec3 target = mesh->model_matrix[3];
     // move towards the target
     global_cam.target = target;
-    glm::vec3 dir = glm::normalize(global_cam.position - target);
-    glm::vec3 new_pos = target + 10.0f * dir;
-    global_cam.position = new_pos;
+    /*glm::vec3 dir = glm::normalize(global_cam.position - target);*/
+    /*glm::vec3 new_pos = target + 10.0f * dir;*/
+    /*global_cam.position = new_pos;*/
 }
 
 
@@ -436,7 +466,6 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         render_flip = !render_flip;
     }
 }
-
 
 
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
@@ -491,8 +520,6 @@ u8 compileShader(GLuint shader_id, const char* shader_path)
 }
 
 
-
-
 size_t array_defaul_resizer(void* array_pointer)
 {
     Array* arr = (Array*)array_pointer;
@@ -502,7 +529,6 @@ size_t array_defaul_resizer(void* array_pointer)
     printf("need twice as much, %i\n", arr->_block_size * 2);
     return arr->_block_size * 2;
 }
-
 
 
 int main()
@@ -543,6 +569,7 @@ int main()
     // END GL INIT
 
 
+    // SHADER SETUP
     GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
     u8 rv = compileShader(default_vert_id, "shaders/default.vert");
     assert(rv);
@@ -561,6 +588,10 @@ int main()
 
     GLuint picker_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
     rv = compileShader(picker_frag_id, "shaders/picker.frag");
+    assert(rv);
+
+    GLuint selection_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
+    rv = compileShader(selection_frag_id, "shaders/selection.frag");
     assert(rv);
 
     GLuint default_shader_program_id = glCreateProgram();
@@ -583,6 +614,11 @@ int main()
     glAttachShader(picker_shader_program_id, picker_frag_id);
     glLinkProgram(picker_shader_program_id);
 
+    selection_shader_program_id = glCreateProgram();
+    glAttachShader(selection_shader_program_id, default_vert_id);
+    glAttachShader(selection_shader_program_id, selection_frag_id);
+    glLinkProgram(selection_shader_program_id);
+
     // WORLD
     glm::vec3 pos = glm::vec3(10, 10, -10);
     global_cam.position = pos;
@@ -595,79 +631,18 @@ int main()
     mesh_data_array.resize_func = array_defaul_resizer;
     ArrayInit(mesh_data_array);
 
-
     xor_state.a = 10;
 
     double current_frame = glfwGetTime();
     double last_frame= current_frame;
 
     // Instance mesh
-    Mesh cube_mesh;
-    cube_mesh.vertex_positions = cube_vertices;
-    cube_mesh.vertex_array_length = sizeof(cube_vertices) / sizeof(GLfloat);
-    cube_mesh.vertex_colors = cube_colors;
-    cube_mesh.model_matrix  = glm::mat4(1.0);
-    GLMesh glmesh = create_gl_mesh_instance(cube_mesh, 3);
+    Mesh cube_mesh = cube_create_mesh();
+    GLMesh cube_glmesh = create_gl_mesh_instance(cube_mesh, 3);
 
-    byte line_count = 22;
-    u32 size = line_count * 2 * 3;
-
-    GLfloat grid_verts[size];
-    GLfloat grid_color[size];
-    int x_min = -5;
-    int x_max = 5;
-
-    int z_min = -5;
-    int z_max = 5;
-    int step = 1;
-
-    int counter = 0;
-    for (int i=0; i < size / 2; i += 6)
-    {
-        counter = i / 6;
-
-        grid_verts[i] = x_min;
-        grid_verts[i+1] = 0;
-        grid_verts[i+2] = z_min + counter * step;
-
-        grid_verts[i+3] = x_max;
-        grid_verts[i+4] = 0;
-        grid_verts[i+5] = z_min + counter * step;
-
-        grid_color[i] = 0.3f;
-        grid_color[i + 1] = 0.5f;
-        grid_color[i + 2] = 0.7f;
-        grid_color[i + 3] = 0.3f;
-        grid_color[i + 4] = 0.5f;
-        grid_color[i + 5] = 0.7f;
-
-    }
-
-    for (byte i=size/2; i < size; i += 6)
-    {
-        int counter2 = i / 6 - counter - 1 ;
-        grid_verts[i] = x_min + counter2 * step;
-        grid_verts[i+1] = 0;
-        grid_verts[i+2] = z_min;
-
-        grid_verts[i+3] = x_min  + counter2 * step;
-        grid_verts[i+4] = 0;
-        grid_verts[i+5] = z_max;
-
-        grid_color[i] = 0.3f;
-        grid_color[i + 1] = 0.5f;
-        grid_color[i + 2] = 0.7f;
-        grid_color[i + 3] = 0.3f;
-        grid_color[i + 4] = 0.5f;
-        grid_color[i + 5] = 0.7f;
-    }
-
-    Mesh line_mesh;
-    line_mesh.vertex_positions = grid_verts;
-    line_mesh.vertex_colors= grid_color;
-    line_mesh.vertex_array_length = sizeof(grid_verts) / sizeof(GLfloat);
-    line_mesh.model_matrix  = glm::mat4(1.0);
-    GLMesh lineGlmesh = create_gl_mesh_instance(line_mesh, 3);
+    // World grid
+    Mesh grid_mesh = grid_create_mesh();
+    GLMesh grid_glmesh = create_gl_mesh_instance(grid_mesh, 3);
 
     Mesh origin_cube = cube_create_mesh();
     origin_cube.model_matrix = glm::translate(origin_cube.model_matrix,
@@ -696,21 +671,31 @@ int main()
         {
             for (int i=0; i < element_count; i++)
             {
-                Mesh* cube_mesh= (Mesh*)ArrayGetIndex(mesh_data_array, i);
+                Mesh* cube_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, i);
                 u32 offset = 0;
                 float ratioX = offset / float(UINT_MAX);
 
                 glm::vec3 position = cube_mesh->model_matrix[3];
                 SphericalCoords spherical_coords = getSphericalCoords(position);
-                spherical_coords.theta += (1 - ratioX) * 0.01f ;
+                spherical_coords.theta += (1 - ratioX) * 0.0001f ;
                 glm::vec3 new_position = getCartesianCoords(spherical_coords);
                 glm::vec3 diff = new_position - position;
                 diff[1] += current_frame / 200.0f;
 
-                cube_mesh->model_matrix = glm::translate(cube_mesh->model_matrix, diff);
+                /*cube_mesh->model_matrix = glm::translate(cube_mesh->model_matrix, diff);*/
 
-                glmesh.mesh = cube_mesh;
-                drawGLMesh(glmesh, GL_TRIANGLES, default_shader_program_id, vp);
+                cube_glmesh.mesh = cube_mesh;
+
+                GLuint shader = default_shader_program_id;
+                /*printf("%p is %p\n", cube_mesh, mouse_over_mesh);*/
+                if(cube_mesh == mouse_over_mesh || cube_mesh == selected_mesh)
+                {
+                    drawGLMesh(cube_glmesh, GL_TRIANGLES, selection_shader_program_id, vp);
+                }
+                else
+                {
+                    drawGLMesh(cube_glmesh, GL_TRIANGLES, default_shader_program_id, vp);
+                }
 
                 // kill logic
                 if (new_position.y > 200)
@@ -722,12 +707,13 @@ int main()
 
             // World grid
             glUseProgram(noop_shader_program_id);
-            glBindVertexArray(lineGlmesh.vao);
-            drawGLMesh(lineGlmesh, GL_LINES, noop_shader_program_id, vp);
-            glfwSwapBuffers(window);
+            glBindVertexArray(grid_glmesh.vao);
+            drawGLMesh(grid_glmesh, GL_LINES, noop_shader_program_id, vp);
         }
         else
             render_selection_buffer(window);
+
+        glfwSwapBuffers(window);
         glfwPollEvents();
     }
 

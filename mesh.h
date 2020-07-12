@@ -14,6 +14,7 @@ typedef struct GLMesh
 {
      GLuint vao;
      Mesh* mesh;
+     GLuint shader_id;
 } GLMesh;
 
 #endif // MESHH
