@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DEBUG=0
+DEBUG=1
 if [ $DEBUG == "1" ]
 then
     echo "*"

@@ -81,6 +81,17 @@ Mesh createRandomCubeOnASphere(xorshift32_state &xor_state)
     return cube_mesh;
 }
 
+u32 get_selected_mesh_index(byte* color)
+{
+    byte remapped_color[4];
+    for(byte i=0; i<4; i++)
+    {
+        remapped_color[i] = 255 - color[i];
+    }
+    u32 mesh_index = *remapped_color;
+    return mesh_index;
+}
+
 
 Mesh createRandomCubeOnAPlane(xorshift32_state &xor_state)
 {
@@ -104,7 +115,7 @@ Mesh createRandomCubeOnAPlane(xorshift32_state &xor_state)
                                    0);
 
     cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
-    cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(offset / float(UINT_MAX)));
+    /*cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(offset / float(UINT_MAX)));*/
 
     return cube_mesh;
 }
@@ -243,6 +254,7 @@ GLMesh create_gl_mesh_instance(Mesh &mesh, u32 vector_dimensions)
                  mesh.vertex_positions,
                  GL_STATIC_DRAW);
 
+    // shader layout 0
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
 
@@ -254,6 +266,7 @@ GLMesh create_gl_mesh_instance(Mesh &mesh, u32 vector_dimensions)
                  mesh.vertex_colors,
                  GL_STATIC_DRAW);
 
+    // shader layout 1
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
 
@@ -266,14 +279,14 @@ GLMesh create_gl_mesh_instance(Mesh &mesh, u32 vector_dimensions)
 
 void drawGLMesh(GLMesh &gl_mesh, GLenum mode, GLuint shader_program_id, glm::mat4 vp)
 {
+    glUseProgram(shader_program_id);
+
     glm::mat4 mvp = vp * gl_mesh.mesh->model_matrix;
 
     GLuint matrix_id = glGetUniformLocation(
         shader_program_id, "MVP");
 
     glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
-
-    glUseProgram(shader_program_id);
     glBindVertexArray(gl_mesh.vao);
     glDrawArrays(mode, 0, gl_mesh.mesh->vertex_array_length / 3.0f);
 };
@@ -288,33 +301,26 @@ void decompose_u32(u32 number, byte* array)
 }
 
 
-void render_selection_buffer(GLFWwindow* window)
+void render_selection_buffer(GLFWwindow* window, glm::mat4 vp, GLMesh* glmesh)
 {
     // Instance mesh
-    Mesh mesh_instance;
-    mesh_instance.vertex_positions = cube_vertices;
-    mesh_instance.vertex_array_length = sizeof(cube_vertices) / sizeof(GLfloat);
-    mesh_instance.vertex_colors = cube_colors;
-    mesh_instance.model_matrix  = glm::mat4(1.0);
-    GLMesh glmesh = create_gl_mesh_instance(mesh_instance, 3);
-
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glm::mat4 vp = get_view_matrix(window_width, window_height);
 
     u32 element_count = mesh_data_array.element_count;
-    for (u32 i=0; i < element_count; i++)
+    for (u32 i=0; i < element_count; ++i)
     {
-        Mesh* cube_mesh= (Mesh*)ArrayGetIndex(mesh_data_array, i);
-        glmesh.mesh = cube_mesh;
+        Mesh* cube_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, i);
+        glmesh->mesh = cube_mesh;
 
         byte bytes[4];
         decompose_u32(i, bytes);
         // Create an ID from mesh index
-        glm::vec4 picker_color = glm::vec4(bytes[0], bytes[1], bytes[2], bytes[3]);
+        glm::vec4 picker_color = glm::vec4(255 - bytes[0], 255 - bytes[1], 255 - bytes[2], 255 - bytes[3]);
 
         // Draw
-        glm::mat4 mvp = vp * glmesh.mesh->model_matrix;
+        glUseProgram(picker_shader_program_id);
+        glm::mat4 mvp = vp * glmesh->mesh->model_matrix;
         GLuint matrix_id = glGetUniformLocation(
             picker_shader_program_id, "MVP");
 
@@ -330,17 +336,14 @@ void render_selection_buffer(GLFWwindow* window)
             (GLfloat)picker_color[3] / 255.0f,
         };
         glUniform4fv(picker_id, 1, &uniform[0]);
-
-        glUseProgram(picker_shader_program_id);
-        glBindVertexArray(glmesh.vao);
-        glDrawArrays(GL_TRIANGLES, 0, glmesh.mesh->vertex_array_length / 3.0f);
+        glBindVertexArray(glmesh->vao);
+        glDrawArrays(GL_TRIANGLES, 0, glmesh->mesh->vertex_array_length / 3.0f);
     }
 }
 
 
 static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
 {
-    render_selection_buffer(window);
     cursor_delta_x = xpos - last_press_x;
     cursor_delta_y = ypos - last_press_y;
     last_press_x = xpos;
@@ -349,12 +352,15 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
     v2i px_coords = get_mouse_pixel_coords(window);
 
     glReadBuffer(GL_BACK);
-    byte res[4];
-    glReadPixels(px_coords.x, px_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &res);
-    u32 mesh_id = *res;
+    byte pixel_color[4];
+    glReadPixels(px_coords.x, px_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &pixel_color);
+    u32 mesh_id = *pixel_color;
+
     if(mesh_id)
     {
-        mouse_over_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id - 1);
+        u32 mesh_idx = get_selected_mesh_index(pixel_color);
+        mouse_over_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_idx);
+        printf("over %i: %p\n", mesh_idx, mouse_over_mesh);
     }
     else
     {
@@ -369,18 +375,18 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
     // TODO(kk): cleanup actions
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && !mods)
     {
-        render_selection_buffer(window);
         v2i pixel_coords = get_mouse_pixel_coords(window);
         glReadBuffer(GL_BACK);
 
-        byte res[4];
-        glReadPixels(pixel_coords.x, pixel_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &res);
-        u32 mesh_id = *res;
+        byte pixel_color[4];
+        glReadPixels(pixel_coords.x, pixel_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &pixel_color);
+        u32 mesh_id = *pixel_color;
 
         if(mesh_id)
         {
-            printf("Selected %i\n", mesh_id);
-            selected_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id);
+            u32 mesh_idx = get_selected_mesh_index(pixel_color);
+            printf("Selected %i\n", mesh_idx);
+            selected_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_idx);
         }
         else
         {
@@ -434,14 +440,12 @@ void focus_on_mesh(Mesh* mesh)
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    if (key == GLFW_KEY_UP)
+    if (key == GLFW_KEY_UP and action == GLFW_PRESS)
     {
-        for (int i=0; i < 10; ++i)
-        {
-            /*Mesh cube_mesh = createRandomCubeOnASphere(xor_state);*/
-            Mesh cube_mesh = createRandomCubeOnAPlane(xor_state);
-            ArrayAppend(mesh_data_array, (void*)&cube_mesh);
-        }
+        /*Mesh cube_mesh = createRandomCubeOnASphere(xor_state);*/
+        Mesh cube_mesh = createRandomCubeOnAPlane(xor_state);
+        ArrayAppend(mesh_data_array, (void*)&cube_mesh);
+        printf("count %i\n", mesh_data_array.element_count);
     }
     else if (key == GLFW_KEY_DOWN)
     {
@@ -452,14 +456,15 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     }
     else if (key == GLFW_KEY_F and action == GLFW_PRESS)
     {
-        if (selected_mesh)
+        if (selected_mesh != NULL)
         {
             focus_on_mesh(selected_mesh);
         }
         else
+        {
             global_cam.target = glm::vec3(0.0f, 0.0f, 0.0f);
+        }
         updateCameraCoordinateFrame(global_cam);
-
     }
     else if (key == GLFW_KEY_E and action == GLFW_PRESS)
     {
@@ -579,7 +584,7 @@ int main()
     assert(rv);
 
     GLuint outline_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(outline_frag_id, "shaders/default.frag");
+    rv = compileShader(outline_frag_id, "shaders/outline.frag");
     assert(rv);
 
     GLuint noop_vert_id = glCreateShader(GL_VERTEX_SHADER);
@@ -644,19 +649,15 @@ int main()
     Mesh grid_mesh = grid_create_mesh();
     GLMesh grid_glmesh = create_gl_mesh_instance(grid_mesh, 3);
 
-    Mesh origin_cube = cube_create_mesh();
-    origin_cube.model_matrix = glm::translate(origin_cube.model_matrix,
-                                              glm::vec3(0, 1, 0));
-    ArrayAppend(mesh_data_array, (void*)&origin_cube);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glEnable(GL_LINE_SMOOTH);
 
-
     while (!glfwWindowShouldClose(window)) {
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        updateCameraCoordinateFrame(global_cam);
 
         current_frame = glfwGetTime();
         delta_time = current_frame - last_frame;
@@ -669,7 +670,7 @@ int main()
 
         if (render_flip)
         {
-            for (int i=0; i < element_count; i++)
+            for (int i=0; i < element_count; ++i)
             {
                 Mesh* cube_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, i);
                 u32 offset = 0;
@@ -686,34 +687,30 @@ int main()
 
                 cube_glmesh.mesh = cube_mesh;
 
-                GLuint shader = default_shader_program_id;
                 /*printf("%p is %p\n", cube_mesh, mouse_over_mesh);*/
                 if(cube_mesh == mouse_over_mesh || cube_mesh == selected_mesh)
                 {
+                    /*printf("over %p\n", cube_mesh);*/
                     drawGLMesh(cube_glmesh, GL_TRIANGLES, selection_shader_program_id, vp);
                 }
                 else
                 {
                     drawGLMesh(cube_glmesh, GL_TRIANGLES, default_shader_program_id, vp);
                 }
-
-                // kill logic
-                if (new_position.y > 200)
-                {
-                    /*ArrayGetIndex(mesh_data_array, i);*/
-                    /*ArrayRemove(mesh_data_array, i);*/
-                }
             }
 
             // World grid
-            glUseProgram(noop_shader_program_id);
+            glUseProgram(default_shader_program_id);
             glBindVertexArray(grid_glmesh.vao);
-            drawGLMesh(grid_glmesh, GL_LINES, noop_shader_program_id, vp);
+            drawGLMesh(grid_glmesh, GL_LINES, default_shader_program_id, vp);
         }
         else
-            render_selection_buffer(window);
+            render_selection_buffer(window, vp, &cube_glmesh);
 
         glfwSwapBuffers(window);
+
+        // NOTE(kk): render selection back buffer before polling events
+        render_selection_buffer(window, vp, &cube_glmesh);
         glfwPollEvents();
     }
 

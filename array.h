@@ -48,7 +48,7 @@ typedef struct Array
 void ArrayInit(Array &arr)
 {
     arr._block_size = arr.element_size * arr.max_element_count;
-    arr._base_pointer = (byte*) malloc(arr._block_size);
+    arr._base_pointer = (byte*) calloc(arr.max_element_count, arr._block_size);
     arr._head_pointer = arr._base_pointer;
 }
 
