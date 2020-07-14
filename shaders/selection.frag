@@ -2,7 +2,8 @@
 
 out vec3 color;
 in vec3 fragmentColor;
+uniform float time;
 
 void main() {
-  color = vec3(fragmentColor[0] * 1.5f, fragmentColor[1], fragmentColor[2]);
+    color = fragmentColor * ((sin(time * 8) + 2) / 2);
 }

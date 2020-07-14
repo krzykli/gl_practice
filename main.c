@@ -40,7 +40,7 @@ static glm::vec3 pan_vector_y;
 static Array mesh_data_array;
 static xorshift32_state xor_state;
 
-static bool render_flip = true;
+static bool render_selction_buffer = false;
 
 static Mesh* selected_mesh = NULL;
 static Mesh* mouse_over_mesh = NULL;
@@ -49,10 +49,11 @@ const float TWO_M_PI = M_PI*2.0f;
 const float M_PI_OVER_TWO = M_PI/2.0f;
 
 GLuint picker_shader_program_id;
+GLuint hover_shader_program_id;
 GLuint selection_shader_program_id;
 
 
-Mesh createRandomCubeOnASphere(xorshift32_state &xor_state)
+Mesh cube_create_random_on_sphere(xorshift32_state &xor_state)
 {
     Mesh cube_mesh = cube_create_mesh();
     u32 base_offset = 100;
@@ -93,7 +94,7 @@ u32 get_selected_mesh_index(byte* color)
 }
 
 
-Mesh createRandomCubeOnAPlane(xorshift32_state &xor_state)
+Mesh cube_create_random_on_plane(xorshift32_state &xor_state)
 {
     Mesh cube_mesh = cube_create_mesh();
     u32 base_offset = 40;
@@ -285,8 +286,12 @@ void drawGLMesh(GLMesh &gl_mesh, GLenum mode, GLuint shader_program_id, glm::mat
 
     GLuint matrix_id = glGetUniformLocation(
         shader_program_id, "MVP");
-
     glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
+
+    GLfloat time = glfwGetTime();
+    GLuint time_id = glGetUniformLocation(shader_program_id, "time");
+    glUniform1f(time_id, time);
+
     glBindVertexArray(gl_mesh.vao);
     glDrawArrays(mode, 0, gl_mesh.mesh->vertex_array_length / 3.0f);
 };
@@ -442,8 +447,8 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 {
     if (key == GLFW_KEY_UP and action == GLFW_PRESS)
     {
-        /*Mesh cube_mesh = createRandomCubeOnASphere(xor_state);*/
-        Mesh cube_mesh = createRandomCubeOnAPlane(xor_state);
+        /*Mesh cube_mesh = cube_create_random_on_sphere(xor_state);*/
+        Mesh cube_mesh = cube_create_random_on_plane(xor_state);
         ArrayAppend(mesh_data_array, (void*)&cube_mesh);
         printf("count %i\n", mesh_data_array.element_count);
     }
@@ -468,7 +473,11 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     }
     else if (key == GLFW_KEY_E and action == GLFW_PRESS)
     {
-        render_flip = !render_flip;
+        render_selction_buffer = true;
+    }
+    else if (key == GLFW_KEY_E and action == GLFW_RELEASE)
+    {
+        render_selction_buffer = false;
     }
 }
 
@@ -574,21 +583,26 @@ int main()
     // END GL INIT
 
 
-    // SHADER SETUP
+    // VERTEX SHADERS
     GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
     u8 rv = compileShader(default_vert_id, "shaders/default.vert");
     assert(rv);
 
+    GLuint noop_vert_id = glCreateShader(GL_VERTEX_SHADER);
+    rv = compileShader(noop_vert_id, "shaders/noop.vert");
+    assert(rv);
+
+    GLuint outline_vert_id = glCreateShader(GL_VERTEX_SHADER);
+    rv = compileShader(outline_vert_id, "shaders/outline.vert");
+    assert(rv);
+
+    // FRAGMENT SHADERS
     GLuint default_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
     rv = compileShader(default_frag_id, "shaders/default.frag");
     assert(rv);
 
     GLuint outline_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
     rv = compileShader(outline_frag_id, "shaders/outline.frag");
-    assert(rv);
-
-    GLuint noop_vert_id = glCreateShader(GL_VERTEX_SHADER);
-    rv = compileShader(noop_vert_id, "shaders/noop.vert");
     assert(rv);
 
     GLuint picker_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
@@ -599,13 +613,17 @@ int main()
     rv = compileShader(selection_frag_id, "shaders/selection.frag");
     assert(rv);
 
+    GLuint hover_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
+    rv = compileShader(hover_frag_id, "shaders/hover.frag");
+    assert(rv);
+
     GLuint default_shader_program_id = glCreateProgram();
     glAttachShader(default_shader_program_id, default_vert_id);
     glAttachShader(default_shader_program_id, default_frag_id);
     glLinkProgram(default_shader_program_id);
 
     GLuint outline_shader_program_id = glCreateProgram();
-    glAttachShader(outline_shader_program_id, default_vert_id);
+    glAttachShader(outline_shader_program_id, outline_vert_id);
     glAttachShader(outline_shader_program_id, outline_frag_id);
     glLinkProgram(outline_shader_program_id);
 
@@ -618,6 +636,11 @@ int main()
     glAttachShader(picker_shader_program_id, default_vert_id);
     glAttachShader(picker_shader_program_id, picker_frag_id);
     glLinkProgram(picker_shader_program_id);
+
+    hover_shader_program_id = glCreateProgram();
+    glAttachShader(hover_shader_program_id, default_vert_id);
+    glAttachShader(hover_shader_program_id, hover_frag_id);
+    glLinkProgram(hover_shader_program_id);
 
     selection_shader_program_id = glCreateProgram();
     glAttachShader(selection_shader_program_id, default_vert_id);
@@ -653,12 +676,13 @@ int main()
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glEnable(GL_LINE_SMOOTH);
+    glEnable(GL_STENCIL_TEST);
 
     while (!glfwWindowShouldClose(window)) {
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        updateCameraCoordinateFrame(global_cam);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
+        updateCameraCoordinateFrame(global_cam);
         current_frame = glfwGetTime();
         delta_time = current_frame - last_frame;
         last_frame = current_frame;
@@ -668,8 +692,16 @@ int main()
 
         u32 element_count = mesh_data_array.element_count;
 
-        if (render_flip)
+        if (render_selction_buffer)
         {
+            render_selection_buffer(window, vp, &cube_glmesh);
+        }
+        else
+        {
+            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+            glStencilFunc(GL_ALWAYS, 1, 0xFF);
+            glStencilMask(0xFF);
+
             for (int i=0; i < element_count; ++i)
             {
                 Mesh* cube_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, i);
@@ -688,24 +720,48 @@ int main()
                 cube_glmesh.mesh = cube_mesh;
 
                 /*printf("%p is %p\n", cube_mesh, mouse_over_mesh);*/
-                if(cube_mesh == mouse_over_mesh || cube_mesh == selected_mesh)
+                GLuint object_shader;
+                if(cube_mesh == mouse_over_mesh)
                 {
-                    /*printf("over %p\n", cube_mesh);*/
-                    drawGLMesh(cube_glmesh, GL_TRIANGLES, selection_shader_program_id, vp);
+                    object_shader = hover_shader_program_id;
+                }
+                else if (cube_mesh == selected_mesh)
+                {
+                    object_shader = selection_shader_program_id;
                 }
                 else
                 {
-                    drawGLMesh(cube_glmesh, GL_TRIANGLES, default_shader_program_id, vp);
+                    object_shader = default_shader_program_id;
                 }
-            }
+                drawGLMesh(cube_glmesh, GL_TRIANGLES, object_shader, vp);
 
+                if (cube_mesh == selected_mesh)
+                {
+                    glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+                    glStencilMask(0x00);
+                    glDisable(GL_DEPTH_TEST);
+
+                    cube_glmesh.mesh = cube_mesh;
+                    glm::mat4 mvp = vp * cube_glmesh.mesh->model_matrix;
+
+                    glUseProgram(outline_shader_program_id);
+                    GLuint matrix_id = glGetUniformLocation(outline_shader_program_id, "MVP");
+                    glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
+                    glBindVertexArray(cube_glmesh.vao);
+                    glDrawArrays(GL_TRIANGLES, 0, cube_glmesh.mesh->vertex_array_length / 3.0f);
+
+                    glBindVertexArray(0);
+                    glStencilMask(0xFF);
+                    glStencilFunc(GL_ALWAYS, 0, 0xFF);
+                    glEnable(GL_DEPTH_TEST);
+                }
+
+            }
             // World grid
             glUseProgram(default_shader_program_id);
             glBindVertexArray(grid_glmesh.vao);
             drawGLMesh(grid_glmesh, GL_LINES, default_shader_program_id, vp);
         }
-        else
-            render_selection_buffer(window, vp, &cube_glmesh);
 
         glfwSwapBuffers(window);
 
