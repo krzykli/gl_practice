@@ -682,7 +682,6 @@ int main()
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-        updateCameraCoordinateFrame(global_cam);
         current_frame = glfwGetTime();
         delta_time = current_frame - last_frame;
         last_frame = current_frame;
