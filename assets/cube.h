@@ -85,7 +85,7 @@ static GLfloat cube_colors[] = {
 Mesh cube_create_mesh()
 {
     Mesh mesh;
-    mesh.vertex_array_length = 36 * 3;
+    mesh.vertex_array_length = sizeof(cube_vertices) / sizeof(*cube_vertices);
     mesh.vertex_positions = cube_vertices;
     mesh.vertex_colors = cube_colors;
     mesh.model_matrix  = glm::mat4(1.0);
@@ -93,4 +93,60 @@ Mesh cube_create_mesh()
 }
 
 
+Mesh cube_create_random_on_sphere(xorshift32_state &xor_state)
+{
+    Mesh cube_mesh = cube_create_mesh();
+    u32 base_offset = 100;
+
+    u32 offset = xorshift32(&xor_state);
+    float ratioX = offset / float(UINT_MAX);
+
+    offset = xorshift32(&xor_state);
+    float ratioY = offset / float(UINT_MAX);
+
+    offset = xorshift32(&xor_state);
+    float ratioZ = offset / float(UINT_MAX);
+
+    offset = xorshift32(&xor_state);
+
+    SphericalCoords cube_sphr_coords;
+    cube_sphr_coords.theta = 3.14f * 2 * ratioX;
+    cube_sphr_coords.phi = 3.14f  * ratioY;
+    cube_sphr_coords.radius = 100.0f;
+
+    glm::vec3 cube_pos = getCartesianCoords(cube_sphr_coords);
+
+    cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
+    cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(offset / float(UINT_MAX)));
+
+    return cube_mesh;
+}
+
+
+Mesh cube_create_random_on_plane(xorshift32_state &xor_state)
+{
+    Mesh cube_mesh = cube_create_mesh();
+    u32 base_offset = 40;
+
+    u32 offset = xorshift32(&xor_state);
+    float ratioX = offset / float(UINT_MAX);
+    ratioX -= .5f;
+
+    offset = xorshift32(&xor_state);
+    float ratioY = offset / 2 / float(UINT_MAX);
+
+    offset = xorshift32(&xor_state);
+    float ratioZ = offset / float(UINT_MAX);
+
+    offset = xorshift32(&xor_state);
+
+    glm::vec3 cube_pos = glm::vec3(base_offset * ratioX - base_offset,
+                                   base_offset * ratioY - base_offset,
+                                   0);
+
+    cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
+    /*cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(offset / float(UINT_MAX)));*/
+
+    return cube_mesh;
+}
 #endif // CUBEH

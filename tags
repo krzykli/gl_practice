@@ -1,0 +1,95 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.8	//
+ARRAYH	array.h	2;"	d
+Array	array.h	/^typedef struct Array$/;"	s
+Array	array.h	/^} Array;$/;"	t	typeref:struct:Array
+ArrayAppend	array.h	/^void ArrayAppend(Array& arr, void* element)$/;"	f
+ArrayCheckAppendBounds	array.h	/^bool ArrayCheckAppendBounds(Array& arr, u32 count)$/;"	f
+ArrayExtend	array.h	/^void ArrayExtend(Array& arr, void* elements, u32 count)$/;"	f
+ArrayFree	array.h	/^void ArrayFree(Array& arr)$/;"	f
+ArrayGetIndex	array.h	/^void* ArrayGetIndex(Array& arr, u32 index)$/;"	f
+ArrayInit	array.h	/^void ArrayInit(Array &arr)$/;"	f
+ArrayInsert	array.h	/^void ArrayInsert(Array& arr, void* element, u32 index)$/;"	f
+ArrayPop	array.h	/^void* ArrayPop(Array& arr)$/;"	f
+Camera	camera.h	/^typedef struct Camera$/;"	s
+Camera	camera.h	/^} Camera;$/;"	t	typeref:struct:Camera
+CoordFrame	camera.h	/^typedef struct CoordFrame$/;"	s
+CoordFrame	camera.h	/^} CoordFrame;$/;"	t	typeref:struct:CoordFrame
+CubeData	main.c	/^typedef struct CubeData$/;"	s	file:
+CubeData	main.c	/^} CubeData;$/;"	t	typeref:struct:CubeData	file:
+GLMesh	main.c	/^typedef struct GLMesh$/;"	s	file:
+GLMesh	main.c	/^} GLMesh;$/;"	t	typeref:struct:GLMesh	file:
+Mesh	main.c	/^typedef struct Mesh$/;"	s	file:
+Mesh	main.c	/^} Mesh;$/;"	t	typeref:struct:Mesh	file:
+SphericalCoords	camera.h	/^typedef struct SphericalCoords$/;"	s
+SphericalCoords	camera.h	/^} SphericalCoords;$/;"	t	typeref:struct:SphericalCoords
+TYPESH	types.h	2;"	d
+Transform	main.c	/^typedef struct Transform$/;"	s	file:
+Transform	main.c	/^} Transform;$/;"	t	typeref:struct:Transform	file:
+_base_pointer	array.h	/^    byte* _base_pointer;$/;"	m	struct:Array
+_block_size	array.h	/^    u32 _block_size;$/;"	m	struct:Array
+_head_pointer	array.h	/^    byte* _head_pointer;$/;"	m	struct:Array
+a	types.h	/^    u32 a;$/;"	m	struct:xorshift32_state
+byte	types.h	/^typedef uint8_t byte;$/;"	t
+colorData	main.c	/^static GLfloat colorData[] = {$/;"	v	file:
+colorData1	main.c	/^static GLfloat colorData1[] = {$/;"	v	file:
+compileShader	main.c	/^u8 compileShader(GLuint shader_id, const char* shader_path)$/;"	f
+createRandomCubeOnASphere	main.c	/^CubeData createRandomCubeOnASphere(xorshift32_state &xor_state)$/;"	f
+cubeVertices	main.c	/^static GLfloat cubeVertices[] = {$/;"	v	file:
+cube_data_array	main.c	/^static Array cube_data_array;$/;"	v	file:
+cursorPositionCallback	main.c	/^static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)$/;"	f	file:
+cursor_delta_x	main.c	/^static float cursor_delta_x = 0;$/;"	v	file:
+cursor_delta_y	main.c	/^static float cursor_delta_y = 0;$/;"	v	file:
+delta_time	main.c	/^static double delta_time;$/;"	v	file:
+direction	camera.h	/^    glm::vec3 direction;$/;"	m	struct:CoordFrame
+drawGLMesh	main.c	/^void drawGLMesh(GLMesh &gl_mesh, GLuint shader_program_id, glm::mat4 vp)$/;"	f
+element_count	array.h	/^    u32 element_count;$/;"	m	struct:Array
+element_size	array.h	/^    u32 element_size;$/;"	m	struct:Array
+getCartesianCoords	camera.h	/^glm::vec3 getCartesianCoords(SphericalCoords &sphericalCoords)$/;"	f
+getSphericalCoords	camera.h	/^SphericalCoords getSphericalCoords(glm::vec3 position)$/;"	f
+global_cam	main.c	/^static Camera global_cam;$/;"	v	file:
+i16	types.h	/^typedef int16_t i16;$/;"	t
+i32	types.h	/^typedef int32_t i32;$/;"	t
+i8	types.h	/^typedef int8_t i8;$/;"	t
+keyCallback	main.c	/^void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)$/;"	f
+last_press_x	main.c	/^static float last_press_x = 0;$/;"	v	file:
+last_press_y	main.c	/^static float last_press_y = 0;$/;"	v	file:
+lineColor	main.c	/^static GLfloat lineColor[] = {$/;"	v	file:
+loadFileContents	main.c	/^void loadFileContents(const char* file_path, char* buffer)$/;"	f
+main	main.c	/^int main()$/;"	f
+matrix	main.c	/^     glm::mat4 matrix;$/;"	m	struct:Transform	file:
+max_element_count	array.h	/^    u32 max_element_count;$/;"	m	struct:Array
+mesh	main.c	/^     Mesh mesh;$/;"	m	struct:CubeData	file:
+mesh	main.c	/^     Mesh* mesh;$/;"	m	struct:GLMesh	file:
+model_matrix	main.c	/^    glm::mat4 model_matrix;$/;"	m	struct:Mesh	file:
+mouseButtonCallback	main.c	/^void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)$/;"	f
+offset	main.c	/^     u32 offset;$/;"	m	struct:CubeData	file:
+pan_coord_frame	main.c	/^static CoordFrame pan_coord_frame;$/;"	v	file:
+pan_mode	main.c	/^static bool pan_mode = false;$/;"	v	file:
+phi	camera.h	/^    float phi;$/;"	m	struct:SphericalCoords
+position	camera.h	/^    glm::vec3 position;$/;"	m	struct:Camera
+prepareMeshForRendering	main.c	/^GLMesh prepareMeshForRendering(Mesh &mesh, u32 vector_dimensions)$/;"	f
+radius	camera.h	/^    float radius;$/;"	m	struct:SphericalCoords
+right	camera.h	/^    glm::vec3 right;$/;"	m	struct:CoordFrame
+rotate_mode	main.c	/^static bool rotate_mode = false;$/;"	v	file:
+scrollCallback	main.c	/^void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)$/;"	f
+target	camera.h	/^    glm::vec3 target;$/;"	m	struct:Camera
+theta	camera.h	/^    float theta;$/;"	m	struct:SphericalCoords
+u16	types.h	/^typedef uint16_t u16;$/;"	t
+u32	types.h	/^typedef uint32_t u32;$/;"	t
+u8	types.h	/^typedef uint8_t u8;$/;"	t
+up	camera.h	/^    glm::vec3 up;$/;"	m	struct:CoordFrame
+updateCameraCoordinateFrame	camera.h	/^void updateCameraCoordinateFrame(CoordFrame &coords, glm::vec3 position, glm::vec3 target)$/;"	f
+vao	main.c	/^     GLuint vao;$/;"	m	struct:GLMesh	file:
+vertex_array_length	main.c	/^    u32 vertex_array_length;$/;"	m	struct:Mesh	file:
+vertex_colors	main.c	/^    float* vertex_colors;$/;"	m	struct:Mesh	file:
+vertex_positions	main.c	/^    float* vertex_positions;$/;"	m	struct:Mesh	file:
+vertices_position	main.c	/^GLfloat vertices_position[24] = {$/;"	v
+xor_state	main.c	/^static xorshift32_state xor_state;$/;"	v	file:
+xorshift32	types.h	/^u32 xorshift32(xorshift32_state *state)$/;"	f
+xorshift32_state	types.h	/^typedef struct xorshift32_state {$/;"	s
+xorshift32_state	types.h	/^}xorshift32_state ;$/;"	t	typeref:struct:xorshift32_state

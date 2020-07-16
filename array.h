@@ -4,30 +4,6 @@
 #include "types.h"
 #include <string.h>
 
-void* debug_malloc(size_t size, const char* file, u32 line)
-{
-     printf("Allocating %lu bytes in file:%s:%i\n", size, file, line);
-     return malloc(size);
-}
-
-void* debug_realloc(void* ptr, size_t size, const char* file, u32 line)
-{
-     printf("Reallocating %lu bytes in file:%s:%i\n", size, file, line);
-     return realloc(ptr, size);
-}
-
-void debug_free(void* ptr, const char* file, u32 line)
-{
-     printf("Freeing memory location %s", (byte*)ptr);
-     return free(ptr);
-}
-
-#ifdef DEBUG
-    #define malloc(size) debug_malloc(size, __FILE__, __LINE__)
-    #define realloc(ptr, size) debug_realloc(ptr, size, __FILE__, __LINE__)
-    #define free(ptr) debug_free(ptr, __FILE__, __LINE__)
-#endif
-
 #define RESIZE_CALLBACK(cb_name) size_t cb_name(void* arr)
 typedef RESIZE_CALLBACK(resize_callback);
 

@@ -13,6 +13,7 @@
 #include <glm/gtx/transform.hpp>
 
 #include "types.h"
+#include "debug.h"
 #include "camera.h"
 #include "array.h"
 #include "mesh.h"
@@ -53,34 +54,6 @@ GLuint hover_shader_program_id;
 GLuint selection_shader_program_id;
 
 
-Mesh cube_create_random_on_sphere(xorshift32_state &xor_state)
-{
-    Mesh cube_mesh = cube_create_mesh();
-    u32 base_offset = 100;
-
-    u32 offset = xorshift32(&xor_state);
-    float ratioX = offset / float(UINT_MAX);
-
-    offset = xorshift32(&xor_state);
-    float ratioY = offset / float(UINT_MAX);
-
-    offset = xorshift32(&xor_state);
-    float ratioZ = offset / float(UINT_MAX);
-
-    offset = xorshift32(&xor_state);
-
-    SphericalCoords cube_sphr_coords;
-    cube_sphr_coords.theta = 3.14f * 2 * ratioX;
-    cube_sphr_coords.phi = 3.14f  * ratioY;
-    cube_sphr_coords.radius = 100.0f;
-
-    glm::vec3 cube_pos = getCartesianCoords(cube_sphr_coords);
-
-    cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
-    cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(offset / float(UINT_MAX)));
-
-    return cube_mesh;
-}
 
 u32 get_selected_mesh_index(byte* color)
 {
@@ -91,34 +64,6 @@ u32 get_selected_mesh_index(byte* color)
     }
     u32 mesh_index = *remapped_color;
     return mesh_index;
-}
-
-
-Mesh cube_create_random_on_plane(xorshift32_state &xor_state)
-{
-    Mesh cube_mesh = cube_create_mesh();
-    u32 base_offset = 40;
-
-    u32 offset = xorshift32(&xor_state);
-    float ratioX = offset / float(UINT_MAX);
-    ratioX -= .5f;
-
-    offset = xorshift32(&xor_state);
-    float ratioY = offset / 2 / float(UINT_MAX);
-
-    offset = xorshift32(&xor_state);
-    float ratioZ = offset / float(UINT_MAX);
-
-    offset = xorshift32(&xor_state);
-
-    glm::vec3 cube_pos = glm::vec3(base_offset * ratioX - base_offset,
-                                   base_offset * ratioY - base_offset,
-                                   0);
-
-    cube_mesh.model_matrix = glm::translate(cube_mesh.model_matrix, cube_pos);
-    /*cube_mesh.model_matrix = glm::scale(cube_mesh.model_matrix, glm::vec3(offset / float(UINT_MAX)));*/
-
-    return cube_mesh;
 }
 
 
@@ -239,6 +184,7 @@ glm::mat4 get_view_matrix(int width, int height)
     glm::mat4 vp = Projection * View;
     return vp;
 }
+
 
 GLMesh create_gl_mesh_instance(Mesh &mesh, u32 vector_dimensions)
 {
@@ -653,7 +599,7 @@ int main()
     global_cam.target = glm::vec3(0, 0, 0);
     updateCameraCoordinateFrame(global_cam);
 
-    u32 max_cubes = 100;
+    u32 max_cubes = 10;
     mesh_data_array.element_size = sizeof(Mesh);
     mesh_data_array.max_element_count = max_cubes;
     mesh_data_array.resize_func = array_defaul_resizer;
