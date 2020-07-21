@@ -12,6 +12,10 @@
 #include <glm/gtx/rotate_vector.hpp>
 #include <glm/gtx/transform.hpp>
 
+#include <ft2build.h>
+#include FT_FREETYPE_H
+FT_Library  library;
+
 #include "types.h"
 #include "debug.h"
 #include "camera.h"
@@ -311,7 +315,7 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
     {
         u32 mesh_idx = get_selected_mesh_index(pixel_color);
         mouse_over_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_idx);
-        printf("over %i: %p\n", mesh_idx, mouse_over_mesh);
+        /*printf("over %i: %p\n", mesh_idx, mouse_over_mesh);*/
     }
     else
     {
@@ -491,6 +495,15 @@ size_t array_defaul_resizer(void* array_pointer)
 }
 
 
+struct Character {
+    unsigned int textureID;  // ID handle of the glyph texture
+    glm::ivec2   size;       // Size of glyph
+    glm::ivec2   bearing;    // Offset from baseline to left/top of glyph
+    unsigned int advance;    // Offset to advance to next glyph
+};
+
+static Character characters[128];
+
 int main()
 {
     GLFWwindow* window;
@@ -528,6 +541,75 @@ int main()
             glGetString(GL_SHADING_LANGUAGE_VERSION));
     // END GL INIT
 
+    // FREETYPE INIT
+    u32 error;
+    error = FT_Init_FreeType(&library);
+    if (error)
+    {
+        printf("Error initializing FreeType\n");
+    }
+
+    FT_Face face;
+    error = FT_New_Face(library,
+                        "/System/Library/Fonts/Helvetica.ttc",
+                        0,
+                        &face );
+    if (error)
+    {
+         printf("Failed to initialize font\n");
+    }
+    /*error = FT_Set_Char_Size(*/
+          /*face,    [> handle to face object           <]*/
+          /*0,       [> char_width in 1/64th of points  <]*/
+          /*16*64,   [> char_height in 1/64th of points <]*/
+          /*96,     [> dpi horizontal device resolution    <]*/
+          /*96);   [> dpi vertical device resolution      <]*/
+
+    int font_size = 48;
+    FT_Set_Pixel_Sizes(face, 0, font_size);  
+
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // disable byte-alignment restriction
+    for (unsigned char c = 0; c < 128; ++c)
+    {
+        // load character glyph 
+        if (FT_Load_Char(face, c, FT_LOAD_RENDER))
+        {
+            printf("ERROR::FREETYTPE: Failed to load Glyph\n");
+            continue;
+        }
+        // generate texture
+        unsigned int texture;
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RED,
+            face->glyph->bitmap.width,
+            face->glyph->bitmap.rows,
+            0,
+            GL_RED,
+            GL_UNSIGNED_BYTE,
+            face->glyph->bitmap.buffer
+        );
+        // set texture options
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        // now store character for later use
+        Character character = {
+            texture,
+            glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
+            glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
+            face->glyph->advance.x
+        };
+        characters[byte(c)] = character;
+    }
+    FT_Done_Face(face);
+    FT_Done_FreeType(library);
+
+    // END FREETYPE INIT
 
     // VERTEX SHADERS
     GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
@@ -540,6 +622,10 @@ int main()
 
     GLuint outline_vert_id = glCreateShader(GL_VERTEX_SHADER);
     rv = compileShader(outline_vert_id, "shaders/outline.vert");
+    assert(rv);
+
+    GLuint font_vert_id = glCreateShader(GL_VERTEX_SHADER);
+    rv = compileShader(font_vert_id, "shaders/font.vert");
     assert(rv);
 
     // FRAGMENT SHADERS
@@ -561,6 +647,10 @@ int main()
 
     GLuint hover_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
     rv = compileShader(hover_frag_id, "shaders/hover.frag");
+    assert(rv);
+
+    GLuint font_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
+    rv = compileShader(font_frag_id, "shaders/font.frag");
     assert(rv);
 
     GLuint default_shader_program_id = glCreateProgram();
@@ -593,6 +683,11 @@ int main()
     glAttachShader(selection_shader_program_id, selection_frag_id);
     glLinkProgram(selection_shader_program_id);
 
+    GLuint font_shader_program_id = glCreateProgram();
+    glAttachShader(font_shader_program_id, font_vert_id);
+    glAttachShader(font_shader_program_id, font_frag_id);
+    glLinkProgram(font_shader_program_id);
+
     // WORLD
     glm::vec3 pos = glm::vec3(10, 10, -10);
     global_cam.position = pos;
@@ -618,7 +713,6 @@ int main()
     Mesh grid_mesh = grid_create_mesh();
     GLMesh grid_glmesh = create_gl_mesh_instance(grid_mesh, 3);
 
-
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glEnable(GL_LINE_SMOOTH);
@@ -630,6 +724,14 @@ int main()
 
         current_frame = glfwGetTime();
         delta_time = current_frame - last_frame;
+        float time_in_ms = delta_time * 1000.0f;
+        // NOTE(kk): Lock framerate
+        while (time_in_ms < 16.666f)
+        {
+            current_frame = glfwGetTime();
+            delta_time = current_frame - last_frame;
+            time_in_ms = delta_time * 1000.0f;
+        }
         last_frame = current_frame;
 
         glfwGetWindowSize(window, &window_width, &window_height);
@@ -707,6 +809,80 @@ int main()
             glBindVertexArray(grid_glmesh.vao);
             drawGLMesh(grid_glmesh, GL_LINES, default_shader_program_id, vp);
         }
+
+
+        // Draw text
+        // https://learnopengl.com/In-Practice/Text-Rendering
+        glEnable(GL_BLEND);
+        glEnable(GL_CULL_FACE);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glm::mat4 projection = glm::ortho(0.0f, (float)window_width, 0.0f, (float)window_height);
+
+        unsigned int VAO, VBO;
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        // The 2D quad requires 6 vertices of 4 floats each, so we reserve 6 *
+        // 4 floats of memory. Because we'll be updating the content of the
+        // VBO's memory quite often we'll allocate the memory with
+        // GL_DYNAMIC_DRAW
+        glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 4, NULL, GL_DYNAMIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+
+        float redx = fmax(0, time_in_ms - 16.666f);
+
+        glm::vec3 color = glm::vec3(0.3f + redx, 0.8f, 0.4f);
+        glm::vec2 pos = glm::vec2(5, 10);
+        float scale = .5f;
+
+        glUseProgram(font_shader_program_id);
+        glUniform3f(glGetUniformLocation(font_shader_program_id, "textColor"), color.x, color.y, color.z);
+        glUniformMatrix4fv(
+            glGetUniformLocation(font_shader_program_id, "projection"), 1, GL_FALSE, &projection[0][0]);
+        glActiveTexture(GL_TEXTURE0);
+        glBindVertexArray(VAO);
+
+        char text[8];
+        sprintf(text, "%.2fms", time_in_ms);
+        int len = strlen(text);
+
+        for (int i = 0; i < len; ++i){
+            char c = text[i];
+            Character ch = characters[c];
+            float xpos = pos.x + ch.bearing.x * scale;
+            float ypos = pos.y - (ch.size.y - ch.bearing.y) * scale;
+
+            float w = ch.size.x * scale;
+            float h = ch.size.y * scale;
+
+            float vertices[6][4] = {
+                { xpos,     ypos + h,   0.0f, 0.0f },
+                { xpos,     ypos,       0.0f, 1.0f },
+                { xpos + w, ypos,       1.0f, 1.0f },
+
+                { xpos,     ypos + h,   0.0f, 0.0f },
+                { xpos + w, ypos,       1.0f, 1.0f },
+                { xpos + w, ypos + h,   1.0f, 0.0f }
+            };
+            // render glyph texture over quad
+            glBindTexture(GL_TEXTURE_2D, ch.textureID);
+            // update content of VBO memory
+            glBindBuffer(GL_ARRAY_BUFFER, VBO);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices); 
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+            // render quad
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            // now advance cursors for next glyph (note that advance is number of 1/64 pixels)
+            pos.x += (ch.advance >> 6) * scale; // bitshift by 6 to get value in pixels (2^6 = 64)
+        }
+        glBindVertexArray(0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        glDisable(GL_BLEND);
 
         glfwSwapBuffers(window);
 
