@@ -61,13 +61,12 @@ GLuint selection_shader_program_id;
 
 u32 get_selected_mesh_index(byte* color)
 {
-    byte remapped_color[4];
-    for(byte i=0; i<4; i++)
-    {
-        remapped_color[i] = 255 - color[i];
-    }
-    u32 mesh_index = *remapped_color;
-    return mesh_index;
+    u32 mesh_id = 0;
+    mesh_id += (255-color[0]) << 0;
+    mesh_id += (255-color[1]) << 8;
+    mesh_id += (255-color[2]) << 16;
+    mesh_id += (255-color[3]) << 24;
+    return mesh_id;
 }
 
 
@@ -309,12 +308,11 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
     glReadBuffer(GL_BACK);
     byte pixel_color[4];
     glReadPixels(px_coords.x, px_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &pixel_color);
-    u32 mesh_id = *pixel_color;
+    u32 mesh_id = get_selected_mesh_index(pixel_color);
 
-    if(mesh_id)
+    if(mesh_id != UINT_MAX)
     {
-        u32 mesh_idx = get_selected_mesh_index(pixel_color);
-        mouse_over_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_idx);
+        mouse_over_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id);
         /*printf("over %i: %p\n", mesh_idx, mouse_over_mesh);*/
     }
     else
@@ -335,13 +333,14 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 
         byte pixel_color[4];
         glReadPixels(pixel_coords.x, pixel_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &pixel_color);
-        u32 mesh_id = *pixel_color;
 
-        if(mesh_id)
+        u32 mesh_id = get_selected_mesh_index(pixel_color);
+        printf("Pixel color %hhu %hhu %hhu %hhu, mesh id %u\n", pixel_color[0], pixel_color[1], pixel_color[2], pixel_color[3], mesh_id);
+
+        if(mesh_id != UINT_MAX)
         {
-            u32 mesh_idx = get_selected_mesh_index(pixel_color);
-            printf("Selected %i\n", mesh_idx);
-            selected_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_idx);
+            printf("Selected %i\n", mesh_id);
+            selected_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id);
         }
         else
         {
@@ -395,12 +394,12 @@ void focus_on_mesh(Mesh* mesh)
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    if (key == GLFW_KEY_UP and action == GLFW_PRESS)
+    if (key == GLFW_KEY_UP)
     {
         /*Mesh cube_mesh = cube_create_random_on_sphere(xor_state);*/
         Mesh cube_mesh = cube_create_random_on_plane(xor_state);
         ArrayAppend(mesh_data_array, (void*)&cube_mesh);
-        printf("count %i\n", mesh_data_array.element_count);
+        /*printf("count %i\n", mesh_data_array.element_count);*/
     }
     else if (key == GLFW_KEY_DOWN)
     {
@@ -757,12 +756,12 @@ int main()
 
                 glm::vec3 position = cube_mesh->model_matrix[3];
                 SphericalCoords spherical_coords = getSphericalCoords(position);
-                spherical_coords.theta += (1 - ratioX) * 0.0001f ;
+                spherical_coords.theta += (1 - ratioX) * 0.01f ;
                 glm::vec3 new_position = getCartesianCoords(spherical_coords);
                 glm::vec3 diff = new_position - position;
                 diff[1] += current_frame / 200.0f;
 
-                /*cube_mesh->model_matrix = glm::translate(cube_mesh->model_matrix, diff);*/
+                cube_mesh->model_matrix = glm::translate(cube_mesh->model_matrix, diff);
 
                 cube_glmesh.mesh = cube_mesh;
 
@@ -835,7 +834,7 @@ int main()
 
         float redx = fmax(0, time_in_ms - 16.666f);
 
-        glm::vec3 color = glm::vec3(0.3f + redx, 0.8f, 0.4f);
+        glm::vec3 color = glm::vec3(0.3f + redx/10.f, 0.8f, 0.4f);
         glm::vec2 pos = glm::vec2(5, 10);
         float scale = .5f;
 
