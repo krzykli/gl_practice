@@ -208,17 +208,20 @@ GLMesh create_gl_mesh_instance(Mesh &mesh, u32 vector_dimensions)
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
 
-    GLuint colorbuffer;
-    glGenBuffers(1, &colorbuffer);
-    glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
-    glBufferData(GL_ARRAY_BUFFER,
-                 mesh.vertex_array_length * sizeof(float),
-                 mesh.vertex_colors,
-                 GL_STATIC_DRAW);
+    if(mesh.vertex_colors)
+    {
+        GLuint colorbuffer;
+        glGenBuffers(1, &colorbuffer);
+        glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
+        glBufferData(GL_ARRAY_BUFFER,
+                     mesh.vertex_array_length * sizeof(float),
+                     mesh.vertex_colors,
+                     GL_STATIC_DRAW);
 
-    // shader layout 1
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
+        // shader layout 1
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
+    }
 
     GLMesh gl_mesh;
     gl_mesh.mesh = &mesh;
@@ -264,7 +267,7 @@ void render_selection_buffer(GLFWwindow* window, glm::mat4 vp, GLMesh* glmesh)
     u32 element_count = mesh_data_array.element_count;
     for (u32 i=0; i < element_count; ++i)
     {
-        Mesh* cube_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, i);
+        Mesh* cube_mesh = (Mesh*)array_get_index(mesh_data_array, i);
         glmesh->mesh = cube_mesh;
 
         byte bytes[4];
@@ -312,7 +315,7 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
 
     if(mesh_id != UINT_MAX)
     {
-        mouse_over_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id);
+        mouse_over_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
         /*printf("over %i: %p\n", mesh_idx, mouse_over_mesh);*/
     }
     else
@@ -340,7 +343,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         if(mesh_id != UINT_MAX)
         {
             printf("Selected %i\n", mesh_id);
-            selected_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id);
+            selected_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
         }
         else
         {
@@ -398,14 +401,14 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     {
         /*Mesh cube_mesh = cube_create_random_on_sphere(xor_state);*/
         Mesh cube_mesh = cube_create_random_on_plane(xor_state);
-        ArrayAppend(mesh_data_array, (void*)&cube_mesh);
+        array_append(mesh_data_array, &cube_mesh);
         /*printf("count %i\n", mesh_data_array.element_count);*/
     }
     else if (key == GLFW_KEY_DOWN)
     {
         for (int i=1; i < 10; ++i)
         {
-            ArrayPop(mesh_data_array);
+            array_pop(mesh_data_array);
         }
     }
     else if (key == GLFW_KEY_F and action == GLFW_PRESS)
@@ -610,6 +613,80 @@ int main()
 
     // END FREETYPE INIT
 
+    // obj reader
+    FILE *fp;
+    char line[256];
+    u32 totalRead = 0;
+
+    /* opening file for reading */
+    fp = fopen("assets/teapot.obj" , "r");
+    if(fp == NULL) {
+        perror("Error opening file");
+        return(-1);
+    }
+
+    Array temp_vertex_array;
+    array_init(temp_vertex_array, 3 * sizeof(float), 1024*1024);
+
+    Array vertex_array;
+    array_init(vertex_array, sizeof(float), 1024*1024);
+
+    while(fgets(line, 256, fp) != NULL) 
+    {
+        /* Total character read count */
+        totalRead = strlen(line);
+
+        /*
+         * Trim new line character from last if exists.
+         */
+        line[totalRead - 1] = line[totalRead - 1] == '\n' ? '\0' : line[totalRead - 1];
+
+        char data_type = line[0];
+        if (data_type == 'v')
+        {
+            char* offset_line = &line[2];
+            char* token = strtok(offset_line, " ");
+            u8 i = 0;
+            float vert[3] = {0};
+            while( token != NULL ) {
+                float result = atof(token);
+                vert[i] = result;
+                token = strtok(NULL, " ");
+                i++;
+            }
+            printf("adding %f %f %f\n", vert[0], vert[1], vert[2]);
+            array_append(temp_vertex_array, &vert);
+        }
+        // else if (data_type == 'vt')  TODO
+        // else if (data_type == 'vn')  TODO
+        else if (data_type == 'f')
+        {
+            u32 vert_idx[3] = {0};
+            char* offset_line = &line[2];
+            char* token = strtok(offset_line, " ");
+            u8 i = 0;
+            while( token != NULL ) {
+                u32 result = atoi(token);
+                vert_idx[i] = result;
+                token = strtok(NULL, " ");
+                i++;
+            }
+            float* vert1 = (float*)array_get_index(temp_vertex_array, vert_idx[0] - 1);
+            float* vert2 = (float*)array_get_index(temp_vertex_array, vert_idx[1] - 1);
+            float* vert3 = (float*)array_get_index(temp_vertex_array, vert_idx[2] - 1);
+            printf("%d %d %d\n", vert_idx[0], vert_idx[1], vert_idx[2]);
+            printf("loading %f %f %f\n", vert1[0], vert1[1], vert1[2]);
+            printf("loading %f %f %f\n", vert2[0], vert2[1], vert2[2]);
+            printf("loading %f %f %f\n", vert3[0], vert3[1], vert3[2]);
+            array_extend(vertex_array, vert1, 3);
+            array_extend(vertex_array, vert2, 3);
+            array_extend(vertex_array, vert3, 3);
+        }
+    }
+    array_free(temp_vertex_array);
+
+    fclose(fp);
+
     // VERTEX SHADERS
     GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
     u8 rv = compileShader(default_vert_id, "shaders/default.vert");
@@ -695,14 +772,21 @@ int main()
 
     u32 max_cubes = 10;
     mesh_data_array.element_size = sizeof(Mesh);
-    mesh_data_array.max_element_count = max_cubes;
+    array_init(mesh_data_array, sizeof(Mesh), max_cubes);
     mesh_data_array.resize_func = array_defaul_resizer;
-    ArrayInit(mesh_data_array);
 
     xor_state.a = 10;
 
     double current_frame = glfwGetTime();
     double last_frame= current_frame;
+
+    Mesh teapot_mesh;
+    teapot_mesh.vertex_array_length = vertex_array.element_count;
+    teapot_mesh.vertex_positions = (float*)vertex_array.base_ptr;
+    teapot_mesh.vertex_colors = NULL;
+    teapot_mesh.model_matrix  = glm::mat4(1.0);
+    array_append(mesh_data_array, &teapot_mesh);
+    GLMesh teapot_glmesh = create_gl_mesh_instance(teapot_mesh, 3);
 
     // Instance mesh
     Mesh cube_mesh = cube_create_mesh();
@@ -718,7 +802,7 @@ int main()
     glEnable(GL_STENCIL_TEST);
 
     while (!glfwWindowShouldClose(window)) {
-        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
         current_frame = glfwGetTime();
@@ -750,7 +834,7 @@ int main()
 
             for (int i=0; i < element_count; ++i)
             {
-                Mesh* cube_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, i);
+                Mesh* cube_mesh = (Mesh*)array_get_index(mesh_data_array, i);
                 u32 offset = 0;
                 float ratioX = offset / float(UINT_MAX);
 
@@ -779,7 +863,7 @@ int main()
                 {
                     object_shader = default_shader_program_id;
                 }
-                drawGLMesh(cube_glmesh, GL_TRIANGLES, object_shader, vp);
+                drawGLMesh(teapot_glmesh, GL_TRIANGLES, object_shader, vp);
 
                 if (cube_mesh == selected_mesh)
                 {
@@ -891,7 +975,7 @@ int main()
     }
 
 
-    ArrayFree(mesh_data_array);
+    array_free(mesh_data_array);
 
     glfwTerminate();
     return 0;
