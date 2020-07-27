@@ -24,6 +24,7 @@ FT_Library  library;
 
 #include "assets/grid.h"
 #include "assets/cube.h"
+#include "io/objloader.h"
 
 static Camera global_cam;
 static double delta_time; 
@@ -613,79 +614,11 @@ int main()
 
     // END FREETYPE INIT
 
-    // obj reader
-    FILE *fp;
-    char line[256];
-    u32 totalRead = 0;
-
-    /* opening file for reading */
-    fp = fopen("assets/teapot.obj" , "r");
-    if(fp == NULL) {
-        perror("Error opening file");
-        return(-1);
-    }
-
-    Array temp_vertex_array;
-    array_init(temp_vertex_array, 3 * sizeof(float), 1024*1024);
-
     Array vertex_array;
     array_init(vertex_array, sizeof(float), 1024*1024);
+    const char* file_path = "assets/teapot.obj";
+    objloader_load(file_path, vertex_array);
 
-    while(fgets(line, 256, fp) != NULL) 
-    {
-        /* Total character read count */
-        totalRead = strlen(line);
-
-        /*
-         * Trim new line character from last if exists.
-         */
-        line[totalRead - 1] = line[totalRead - 1] == '\n' ? '\0' : line[totalRead - 1];
-
-        char data_type = line[0];
-        if (data_type == 'v')
-        {
-            char* offset_line = &line[2];
-            char* token = strtok(offset_line, " ");
-            u8 i = 0;
-            float vert[3] = {0};
-            while( token != NULL ) {
-                float result = atof(token);
-                vert[i] = result;
-                token = strtok(NULL, " ");
-                i++;
-            }
-            printf("adding %f %f %f\n", vert[0], vert[1], vert[2]);
-            array_append(temp_vertex_array, &vert);
-        }
-        // else if (data_type == 'vt')  TODO
-        // else if (data_type == 'vn')  TODO
-        else if (data_type == 'f')
-        {
-            u32 vert_idx[3] = {0};
-            char* offset_line = &line[2];
-            char* token = strtok(offset_line, " ");
-            u8 i = 0;
-            while( token != NULL ) {
-                u32 result = atoi(token);
-                vert_idx[i] = result;
-                token = strtok(NULL, " ");
-                i++;
-            }
-            float* vert1 = (float*)array_get_index(temp_vertex_array, vert_idx[0] - 1);
-            float* vert2 = (float*)array_get_index(temp_vertex_array, vert_idx[1] - 1);
-            float* vert3 = (float*)array_get_index(temp_vertex_array, vert_idx[2] - 1);
-            printf("%d %d %d\n", vert_idx[0], vert_idx[1], vert_idx[2]);
-            printf("loading %f %f %f\n", vert1[0], vert1[1], vert1[2]);
-            printf("loading %f %f %f\n", vert2[0], vert2[1], vert2[2]);
-            printf("loading %f %f %f\n", vert3[0], vert3[1], vert3[2]);
-            array_extend(vertex_array, vert1, 3);
-            array_extend(vertex_array, vert2, 3);
-            array_extend(vertex_array, vert3, 3);
-        }
-    }
-    array_free(temp_vertex_array);
-
-    fclose(fp);
 
     // VERTEX SHADERS
     GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
@@ -863,7 +796,7 @@ int main()
                 {
                     object_shader = default_shader_program_id;
                 }
-                drawGLMesh(teapot_glmesh, GL_TRIANGLES, object_shader, vp);
+                drawGLMesh(cube_glmesh, GL_TRIANGLES, object_shader, vp);
 
                 if (cube_mesh == selected_mesh)
                 {
@@ -890,6 +823,7 @@ int main()
             // World grid
             glUseProgram(default_shader_program_id);
             glBindVertexArray(grid_glmesh.vao);
+            drawGLMesh(teapot_glmesh, GL_TRIANGLES, noop_shader_program_id, vp);
             drawGLMesh(grid_glmesh, GL_LINES, default_shader_program_id, vp);
         }
 
