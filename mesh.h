@@ -7,6 +7,7 @@ typedef struct Mesh
     glm::mat4 model_matrix;
     float* vertex_positions;
     float* vertex_colors;
+    float* vertex_normals;
 } Mesh;
 
 

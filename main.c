@@ -224,6 +224,21 @@ GLMesh create_gl_mesh_instance(Mesh &mesh, u32 vector_dimensions)
         glVertexAttribPointer(1, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
     }
 
+    if(mesh.vertex_normals)
+    {
+        GLuint normal_buffer;
+        glGenBuffers(1, &normal_buffer);
+        glBindBuffer(GL_ARRAY_BUFFER, normal_buffer);
+        glBufferData(GL_ARRAY_BUFFER,
+                     mesh.vertex_array_length * sizeof(float),
+                     mesh.vertex_normals,
+                     GL_STATIC_DRAW);
+
+        // shader layout 2
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(1, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
+    }
+
     GLMesh gl_mesh;
     gl_mesh.mesh = &mesh;
     gl_mesh.vao = vao;
@@ -616,8 +631,13 @@ int main()
 
     Array vertex_array;
     array_init(vertex_array, sizeof(float), 1024*1024);
-    const char* file_path = "assets/teapot.obj";
-    objloader_load(file_path, vertex_array);
+    Array uv_array;
+    array_init(uv_array, sizeof(float), 1024*1024);
+    Array normals_array;
+    array_init(normals_array, sizeof(float), 1024*1024);
+
+    const char* file_path = "assets/teapot2.obj";
+    objloader_load(file_path, vertex_array, uv_array, normals_array);
 
 
     // VERTEX SHADERS
@@ -662,6 +682,10 @@ int main()
     rv = compileShader(font_frag_id, "shaders/font.frag");
     assert(rv);
 
+    GLuint lambert_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
+    rv = compileShader(font_frag_id, "shaders/lambert.frag");
+    assert(rv);
+
     GLuint default_shader_program_id = glCreateProgram();
     glAttachShader(default_shader_program_id, default_vert_id);
     glAttachShader(default_shader_program_id, default_frag_id);
@@ -697,6 +721,11 @@ int main()
     glAttachShader(font_shader_program_id, font_frag_id);
     glLinkProgram(font_shader_program_id);
 
+    GLuint lambert_shader_program_id = glCreateProgram();
+    glAttachShader(font_shader_program_id, font_vert_id);
+    glAttachShader(lambert_shader_program_id, lambert_frag_id);
+    glLinkProgram(lambert_shader_program_id);
+
     // WORLD
     glm::vec3 pos = glm::vec3(10, 10, -10);
     global_cam.position = pos;
@@ -716,9 +745,10 @@ int main()
     Mesh teapot_mesh;
     teapot_mesh.vertex_array_length = vertex_array.element_count;
     teapot_mesh.vertex_positions = (float*)vertex_array.base_ptr;
+    teapot_mesh.vertex_normals = (float*)normals_array.base_ptr;
     teapot_mesh.vertex_colors = NULL;
     teapot_mesh.model_matrix  = glm::mat4(1.0);
-    array_append(mesh_data_array, &teapot_mesh);
+    /*array_append(mesh_data_array, &teapot_mesh);*/
     GLMesh teapot_glmesh = create_gl_mesh_instance(teapot_mesh, 3);
 
     // Instance mesh
@@ -823,7 +853,7 @@ int main()
             // World grid
             glUseProgram(default_shader_program_id);
             glBindVertexArray(grid_glmesh.vao);
-            drawGLMesh(teapot_glmesh, GL_TRIANGLES, noop_shader_program_id, vp);
+            drawGLMesh(teapot_glmesh, GL_TRIANGLES, lambert_shader_program_id, vp);
             drawGLMesh(grid_glmesh, GL_LINES, default_shader_program_id, vp);
         }
 
@@ -898,7 +928,6 @@ int main()
         }
         glBindVertexArray(0);
         glBindTexture(GL_TEXTURE_2D, 0);
-
         glDisable(GL_BLEND);
 
         glfwSwapBuffers(window);
