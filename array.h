@@ -38,9 +38,8 @@ void array_realloc(Array& arr, size_t new_size)
     arr._block_size = new_size;
     arr.max_element_count = new_size / arr.element_size;
     arr._head_ptr = arr.base_ptr + arr.element_size * arr.element_count;
-    printf("max element count, %i\n", arr.max_element_count);
-    printf("element count, %i\n", arr.element_count);
-
+    print("Block size %u, element count: %u, new max acount: %u",
+          arr._block_size, arr.element_count, arr.max_element_count);
 }
 
 
@@ -51,7 +50,7 @@ bool array_check_bounds(Array& arr, u32 count)
 {
     if (arr.element_count + count > arr.max_element_count)
     {
-        printf("Not enough memory to perform addition.\n");
+        print("Not enough memory to perform addition.");
         return false;
     }
     return true;

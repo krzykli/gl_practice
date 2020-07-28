@@ -2,8 +2,8 @@
 
 out vec3 color;
 in vec3 fragmentColor;
-in vec3 Normal;
+in vec3 normal;
 
 void main() {
-  color = Normal;
+    color = normal;
 }

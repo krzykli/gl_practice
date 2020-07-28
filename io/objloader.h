@@ -21,7 +21,7 @@ u32 objloader_load(const char* file_path,
     array_init(temp_vertex_array, 3 * sizeof(float), 1024*1024);
 
     Array temp_uv_array;
-    array_init(temp_uv_array, 3 * sizeof(float), 1024*1024);
+    array_init(temp_uv_array, 2 * sizeof(float), 1024*1024);
 
     Array temp_normal_array;
     array_init(temp_normal_array, 3 * sizeof(float), 1024*1024);
@@ -40,21 +40,23 @@ u32 objloader_load(const char* file_path,
         {
             float vert[3] = {0};
             int matches = sscanf(line, "v %f %f %f\n", &vert[0], &vert[1], &vert[2]);
-            printf("matches%i\n", matches);
-            printf("adding %f %f %f\n", vert[0], vert[1], vert[2]);
-            array_append(temp_vertex_array, &vert);
+            if (matches == 3)
+                array_append(temp_vertex_array, &vert);
         }
         else if (data_type == 'v' && data_type_2 == 't')
         {
-            float uv[3] = {0};
-            int matches = sscanf(line, "vt %f %f %f\n", &uv[0], &uv[1], &uv[2]);
-            array_append(temp_uv_array, &uv);
+            float uv[2] = {0};
+            int matches = sscanf(line, "vt %f %f\n", &uv[0], &uv[1]);
+            // TODO account for 3 floats in data?
+            if(matches == 2)
+                array_append(temp_uv_array, &uv);
         }
         else if (data_type == 'v' && data_type_2 == 'n')
         {
             float normal[3] = {0};
             int matches = sscanf(line, "vn %f %f %f\n", &normal[0], &normal[1], &normal[2]);
-            array_append(temp_normal_array, &normal);
+            if (matches == 3)
+                array_append(temp_normal_array, &normal);
         }
         else if (data_type == 'f')
         {
@@ -67,10 +69,6 @@ u32 objloader_load(const char* file_path,
                 float* vert1 = (float*)array_get_index(temp_vertex_array, vert_idx[0] - 1);
                 float* vert2 = (float*)array_get_index(temp_vertex_array, vert_idx[1] - 1);
                 float* vert3 = (float*)array_get_index(temp_vertex_array, vert_idx[2] - 1);
-                //printf("%d %d %d\n", vert_idx[0], vert_idx[1], vert_idx[2]);
-                //printf("loading %f %f %f\n", vert1[0], vert1[1], vert1[2]);
-                //printf("loading %f %f %f\n", vert2[0], vert2[1], vert2[2]);
-                //printf("loading %f %f %f\n", vert3[0], vert3[1], vert3[2]);
                 array_extend(out_vertex_array, vert1, 3);
                 array_extend(out_vertex_array, vert2, 3);
                 array_extend(out_vertex_array, vert3, 3);
@@ -103,6 +101,10 @@ u32 objloader_load(const char* file_path,
                     array_extend(out_normal_array, normal1, 3);
                     array_extend(out_normal_array, normal2, 3);
                     array_extend(out_normal_array, normal3, 3);
+
+                    //print("normal1 %f %f %f", normal1[0], normal1[1], normal1[2]);
+                    //print("normal2 %f %f %f", normal2[0], normal2[1], normal2[2]);
+                    //print("normal3 %f %f %f", normal3[0], normal3[1], normal3[2]);
                 }
                 else
                 {

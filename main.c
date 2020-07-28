@@ -105,6 +105,7 @@ v2i get_mouse_pixel_coords(GLFWwindow* window)
 
 glm::mat4 get_view_matrix(int width, int height)
 {
+    // TODO(kk): move projection out of here
     glm::mat4 Projection = glm::perspective(
         glm::radians(45.0f),
         (float)width / (float)height,
@@ -332,7 +333,7 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
     if(mesh_id != UINT_MAX)
     {
         mouse_over_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
-        /*printf("over %i: %p\n", mesh_idx, mouse_over_mesh);*/
+        /*print("over %i: %p", mesh_idx, mouse_over_mesh);*/
     }
     else
     {
@@ -354,11 +355,11 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         glReadPixels(pixel_coords.x, pixel_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &pixel_color);
 
         u32 mesh_id = get_selected_mesh_index(pixel_color);
-        printf("Pixel color %hhu %hhu %hhu %hhu, mesh id %u\n", pixel_color[0], pixel_color[1], pixel_color[2], pixel_color[3], mesh_id);
+        print("Pixel color %hhu %hhu %hhu %hhu, mesh id %u", pixel_color[0], pixel_color[1], pixel_color[2], pixel_color[3], mesh_id);
 
         if(mesh_id != UINT_MAX)
         {
-            printf("Selected %i\n", mesh_id);
+            print("Selected %i", mesh_id);
             selected_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
         }
         else
@@ -418,7 +419,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         /*Mesh cube_mesh = cube_create_random_on_sphere(xor_state);*/
         Mesh cube_mesh = cube_create_random_on_plane(xor_state);
         array_append(mesh_data_array, &cube_mesh);
-        /*printf("count %i\n", mesh_data_array.element_count);*/
+        /*print("count %i", mesh_data_array.element_count);*/
     }
     else if (key == GLFW_KEY_DOWN)
     {
@@ -495,7 +496,7 @@ u8 compileShader(GLuint shader_id, const char* shader_path)
         char errorLog[max_length];
         glGetShaderInfoLog(shader_id, max_length, &max_length, &errorLog[0]);
         glDeleteShader(shader_id);
-        printf("%s", errorLog);
+        print("%s", errorLog);
         return 0;
     }
     return 1;
@@ -505,10 +506,10 @@ u8 compileShader(GLuint shader_id, const char* shader_path)
 size_t array_defaul_resizer(void* array_pointer)
 {
     Array* arr = (Array*)array_pointer;
-    printf("element size, %i\n", arr->element_size);
-    printf("max element count, %i\n", arr->max_element_count);
-    printf("element count, %i\n", arr->element_count);
-    printf("need twice as much, %i\n", arr->_block_size * 2);
+    print("element size, %i", arr->element_size);
+    print("max element count, %i", arr->max_element_count);
+    print("element count, %i", arr->element_count);
+    print("need twice as much, %i", arr->_block_size * 2);
     return arr->_block_size * 2;
 }
 
@@ -553,9 +554,9 @@ int main()
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetScrollCallback(window, scrollCallback);
 
-    printf("OpenGL version supported by this platform: %s\n",
+    print("OpenGL version supported by this platform: %s",
             glGetString(GL_VERSION));
-    printf("GLSL version supported by this platform: %s\n",
+    print("GLSL version supported by this platform: %s",
             glGetString(GL_SHADING_LANGUAGE_VERSION));
     // END GL INIT
 
@@ -564,7 +565,7 @@ int main()
     error = FT_Init_FreeType(&library);
     if (error)
     {
-        printf("Error initializing FreeType\n");
+        print("Error initializing FreeType");
     }
 
     FT_Face face;
@@ -574,7 +575,7 @@ int main()
                         &face );
     if (error)
     {
-         printf("Failed to initialize font\n");
+         print("Failed to initialize font");
     }
     /*error = FT_Set_Char_Size(*/
           /*face,    [> handle to face object           <]*/
@@ -592,7 +593,7 @@ int main()
         // load character glyph 
         if (FT_Load_Char(face, c, FT_LOAD_RENDER))
         {
-            printf("ERROR::FREETYTPE: Failed to load Glyph\n");
+            print("ERROR::FREETYTPE: Failed to load Glyph");
             continue;
         }
         // generate texture
@@ -636,10 +637,11 @@ int main()
     Array normals_array;
     array_init(normals_array, sizeof(float), 1024*1024);
 
-    const char* file_path = "assets/teapot2.obj";
+    const char* file_path = "assets/suzanne.obj";
     objloader_load(file_path, vertex_array, uv_array, normals_array);
 
 
+    // TODO(kk): write a convenience function for shaders and improve assert
     // VERTEX SHADERS
     GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
     u8 rv = compileShader(default_vert_id, "shaders/default.vert");
@@ -812,7 +814,6 @@ int main()
 
                 cube_glmesh.mesh = cube_mesh;
 
-                /*printf("%p is %p\n", cube_mesh, mouse_over_mesh);*/
                 GLuint object_shader;
                 if(cube_mesh == mouse_over_mesh)
                 {
