@@ -24,6 +24,7 @@ FT_Library  library;
 
 #include "assets/grid.h"
 #include "assets/cube.h"
+#include "io/objloader.h"
 
 static Camera global_cam;
 static double delta_time; 
@@ -102,14 +103,8 @@ v2i get_mouse_pixel_coords(GLFWwindow* window)
 
 
 
-glm::mat4 get_view_matrix(int width, int height)
+glm::mat4 get_view_matrix()
 {
-    glm::mat4 Projection = glm::perspective(
-        glm::radians(45.0f),
-        (float)width / (float)height,
-        0.1f, 10000.0f
-    );
-
     glm::mat4 View = glm::mat4();
 
     // USER INTERACTION
@@ -184,65 +179,25 @@ glm::mat4 get_view_matrix(int width, int height)
     global_cam.target = global_cam.position - glm::vec3(camera_world[2]) * targetDist;
     global_cam.up = glm::vec3(camera_world[1]);
 
-    glm::mat4 vp = Projection * View;
-    return vp;
+    return View;
 }
 
 
-GLMesh create_gl_mesh_instance(Mesh &mesh, u32 vector_dimensions)
-{
-    GLuint vao;
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
-
-    GLuint vbo;
-    glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-
-    glBufferData(GL_ARRAY_BUFFER,
-                 mesh.vertex_array_length * sizeof(float),
-                 mesh.vertex_positions,
-                 GL_STATIC_DRAW);
-
-    // shader layout 0
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
-
-    GLuint colorbuffer;
-    glGenBuffers(1, &colorbuffer);
-    glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
-    glBufferData(GL_ARRAY_BUFFER,
-                 mesh.vertex_array_length * sizeof(float),
-                 mesh.vertex_colors,
-                 GL_STATIC_DRAW);
-
-    // shader layout 1
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
-
-    GLMesh gl_mesh;
-    gl_mesh.mesh = &mesh;
-    gl_mesh.vao = vao;
-    return gl_mesh;
-}
-
-
-void drawGLMesh(GLMesh &gl_mesh, GLenum mode, GLuint shader_program_id, glm::mat4 vp)
+void drawMesh(Mesh &mesh, GLenum mode, GLuint shader_program_id, glm::mat4 vp)
 {
     glUseProgram(shader_program_id);
 
-    glm::mat4 mvp = vp * gl_mesh.mesh->model_matrix;
+    glm::mat4 mvp = vp * mesh.model_matrix;
 
-    GLuint matrix_id = glGetUniformLocation(
-        shader_program_id, "MVP");
+    GLuint matrix_id = glGetUniformLocation(shader_program_id, "MVP");
     glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
 
     GLfloat time = glfwGetTime();
     GLuint time_id = glGetUniformLocation(shader_program_id, "time");
     glUniform1f(time_id, time);
 
-    glBindVertexArray(gl_mesh.vao);
-    glDrawArrays(mode, 0, gl_mesh.mesh->vertex_array_length / 3.0f);
+    glBindVertexArray(mesh.vao);
+    glDrawArrays(mode, 0, mesh.vertex_array_length / 3.0f);
 };
 
 
@@ -255,7 +210,7 @@ void decompose_u32(u32 number, byte* array)
 }
 
 
-void render_selection_buffer(GLFWwindow* window, glm::mat4 vp, GLMesh* glmesh)
+void render_selection_buffer(GLFWwindow* window, glm::mat4 vp)
 {
     // Instance mesh
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -264,8 +219,7 @@ void render_selection_buffer(GLFWwindow* window, glm::mat4 vp, GLMesh* glmesh)
     u32 element_count = mesh_data_array.element_count;
     for (u32 i=0; i < element_count; ++i)
     {
-        Mesh* cube_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, i);
-        glmesh->mesh = cube_mesh;
+        Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
 
         byte bytes[4];
         decompose_u32(i, bytes);
@@ -274,7 +228,7 @@ void render_selection_buffer(GLFWwindow* window, glm::mat4 vp, GLMesh* glmesh)
 
         // Draw
         glUseProgram(picker_shader_program_id);
-        glm::mat4 mvp = vp * glmesh->mesh->model_matrix;
+        glm::mat4 mvp = vp * mesh->model_matrix;
         GLuint matrix_id = glGetUniformLocation(
             picker_shader_program_id, "MVP");
 
@@ -290,8 +244,8 @@ void render_selection_buffer(GLFWwindow* window, glm::mat4 vp, GLMesh* glmesh)
             (GLfloat)picker_color[3] / 255.0f,
         };
         glUniform4fv(picker_id, 1, &uniform[0]);
-        glBindVertexArray(glmesh->vao);
-        glDrawArrays(GL_TRIANGLES, 0, glmesh->mesh->vertex_array_length / 3.0f);
+        glBindVertexArray(mesh->vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
     }
 }
 
@@ -312,8 +266,8 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
 
     if(mesh_id != UINT_MAX)
     {
-        mouse_over_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id);
-        /*printf("over %i: %p\n", mesh_idx, mouse_over_mesh);*/
+        mouse_over_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
+        /*print("over %i: %p", mesh_idx, mouse_over_mesh);*/
     }
     else
     {
@@ -335,12 +289,12 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         glReadPixels(pixel_coords.x, pixel_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &pixel_color);
 
         u32 mesh_id = get_selected_mesh_index(pixel_color);
-        printf("Pixel color %hhu %hhu %hhu %hhu, mesh id %u\n", pixel_color[0], pixel_color[1], pixel_color[2], pixel_color[3], mesh_id);
+        print("Pixel color %hhu %hhu %hhu %hhu, mesh id %u", pixel_color[0], pixel_color[1], pixel_color[2], pixel_color[3], mesh_id);
 
         if(mesh_id != UINT_MAX)
         {
-            printf("Selected %i\n", mesh_id);
-            selected_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, mesh_id);
+            print("Selected %i", mesh_id);
+            selected_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
         }
         else
         {
@@ -398,14 +352,15 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     {
         /*Mesh cube_mesh = cube_create_random_on_sphere(xor_state);*/
         Mesh cube_mesh = cube_create_random_on_plane(xor_state);
-        ArrayAppend(mesh_data_array, (void*)&cube_mesh);
-        /*printf("count %i\n", mesh_data_array.element_count);*/
+        mesh_initialize_VAO(cube_mesh, 3);
+        array_append(mesh_data_array, &cube_mesh);
+        /*print("count %i", mesh_data_array.element_count);*/
     }
     else if (key == GLFW_KEY_DOWN)
     {
         for (int i=1; i < 10; ++i)
         {
-            ArrayPop(mesh_data_array);
+            array_pop(mesh_data_array);
         }
     }
     else if (key == GLFW_KEY_F and action == GLFW_PRESS)
@@ -476,7 +431,7 @@ u8 compileShader(GLuint shader_id, const char* shader_path)
         char errorLog[max_length];
         glGetShaderInfoLog(shader_id, max_length, &max_length, &errorLog[0]);
         glDeleteShader(shader_id);
-        printf("%s", errorLog);
+        print("%s", errorLog);
         return 0;
     }
     return 1;
@@ -486,10 +441,10 @@ u8 compileShader(GLuint shader_id, const char* shader_path)
 size_t array_defaul_resizer(void* array_pointer)
 {
     Array* arr = (Array*)array_pointer;
-    printf("element size, %i\n", arr->element_size);
-    printf("max element count, %i\n", arr->max_element_count);
-    printf("element count, %i\n", arr->element_count);
-    printf("need twice as much, %i\n", arr->_block_size * 2);
+    print("element size, %i", arr->element_size);
+    print("max element count, %i", arr->max_element_count);
+    print("element count, %i", arr->element_count);
+    print("need twice as much, %i", arr->_block_size * 2);
     return arr->_block_size * 2;
 }
 
@@ -534,9 +489,9 @@ int main()
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetScrollCallback(window, scrollCallback);
 
-    printf("OpenGL version supported by this platform: %s\n",
+    print("OpenGL version supported by this platform: %s",
             glGetString(GL_VERSION));
-    printf("GLSL version supported by this platform: %s\n",
+    print("GLSL version supported by this platform: %s",
             glGetString(GL_SHADING_LANGUAGE_VERSION));
     // END GL INIT
 
@@ -545,7 +500,7 @@ int main()
     error = FT_Init_FreeType(&library);
     if (error)
     {
-        printf("Error initializing FreeType\n");
+        print("Error initializing FreeType");
     }
 
     FT_Face face;
@@ -555,7 +510,7 @@ int main()
                         &face );
     if (error)
     {
-         printf("Failed to initialize font\n");
+         print("Failed to initialize font");
     }
     /*error = FT_Set_Char_Size(*/
           /*face,    [> handle to face object           <]*/
@@ -573,7 +528,7 @@ int main()
         // load character glyph 
         if (FT_Load_Char(face, c, FT_LOAD_RENDER))
         {
-            printf("ERROR::FREETYTPE: Failed to load Glyph\n");
+            print("ERROR::FREETYTPE: Failed to load Glyph");
             continue;
         }
         // generate texture
@@ -610,6 +565,9 @@ int main()
 
     // END FREETYPE INIT
 
+
+
+    // TODO(kk): write a convenience function for shaders and improve assert
     // VERTEX SHADERS
     GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
     u8 rv = compileShader(default_vert_id, "shaders/default.vert");
@@ -652,6 +610,10 @@ int main()
     rv = compileShader(font_frag_id, "shaders/font.frag");
     assert(rv);
 
+    GLuint lambert_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
+    rv = compileShader(lambert_frag_id, "shaders/lambert.frag");
+    assert(rv);
+
     GLuint default_shader_program_id = glCreateProgram();
     glAttachShader(default_shader_program_id, default_vert_id);
     glAttachShader(default_shader_program_id, default_frag_id);
@@ -687,30 +649,70 @@ int main()
     glAttachShader(font_shader_program_id, font_frag_id);
     glLinkProgram(font_shader_program_id);
 
+    GLuint lambert_shader_program_id = glCreateProgram();
+    glAttachShader(default_shader_program_id, default_vert_id);
+    glAttachShader(lambert_shader_program_id, lambert_frag_id);
+    glLinkProgram(lambert_shader_program_id);
+
     // WORLD
-    glm::vec3 pos = glm::vec3(10, 10, -10);
+    glm::vec3 pos = glm::vec3(10, 8, 10);
     global_cam.position = pos;
     global_cam.target = glm::vec3(0, 0, 0);
     updateCameraCoordinateFrame(global_cam);
 
-    u32 max_cubes = 10;
+    u32 max_meshes = 10;
     mesh_data_array.element_size = sizeof(Mesh);
-    mesh_data_array.max_element_count = max_cubes;
+    array_init(mesh_data_array, sizeof(Mesh), max_meshes);
     mesh_data_array.resize_func = array_defaul_resizer;
-    ArrayInit(mesh_data_array);
 
     xor_state.a = 10;
 
     double current_frame = glfwGetTime();
     double last_frame= current_frame;
 
-    // Instance mesh
-    Mesh cube_mesh = cube_create_mesh();
-    GLMesh cube_glmesh = create_gl_mesh_instance(cube_mesh, 3);
+    // TODO add convenience for creating obj meshes
+    Array suzanne_vertex_array;
+    array_init(suzanne_vertex_array, sizeof(float), 1024*1024);
+    Array suzanne_uv_array;
+    array_init(suzanne_uv_array, sizeof(float), 1024*1024);
+    Array suzanne_normals_array;
+    array_init(suzanne_normals_array, sizeof(float), 1024*1024);
+
+    const char* suzanne_file_path = "assets/suzanne.obj";
+    objloader_load(suzanne_file_path, suzanne_vertex_array, suzanne_uv_array, suzanne_normals_array);
+    Mesh suzanne_mesh;
+    suzanne_mesh.vertex_array_length = suzanne_vertex_array.element_count;
+    suzanne_mesh.vertex_positions = (float*)suzanne_vertex_array.base_ptr;
+    suzanne_mesh.vertex_normals = NULL;
+    suzanne_mesh.vertex_colors = (float*)suzanne_normals_array.base_ptr;
+    suzanne_mesh.model_matrix  = glm::mat4(1.0);
+    suzanne_mesh.model_matrix = glm::translate(suzanne_mesh.model_matrix, glm::vec3(-10,-10,-10));
+    suzanne_mesh.model_matrix = glm::scale(suzanne_mesh.model_matrix, glm::vec3(3,3,3));
+
+    mesh_initialize_VAO(suzanne_mesh, 3);
+    array_append(mesh_data_array, &suzanne_mesh);
+
+    Array teapot_vertex_array;
+    array_init(teapot_vertex_array, sizeof(float), 1024*1024);
+    Array teapot_uv_array;
+    array_init(teapot_uv_array, sizeof(float), 1024*1024);
+    Array teapot_normals_array;
+    array_init(teapot_normals_array, sizeof(float), 1024*1024);
+
+    const char* teapot_file_path = "assets/teapot2.obj";
+    objloader_load(teapot_file_path, teapot_vertex_array, teapot_uv_array, teapot_normals_array);
+    Mesh teapot_mesh;
+    teapot_mesh.vertex_array_length = teapot_vertex_array.element_count;
+    teapot_mesh.vertex_positions = (float*)teapot_vertex_array.base_ptr;
+    teapot_mesh.vertex_normals = NULL;
+    teapot_mesh.vertex_colors = (float*)teapot_normals_array.base_ptr;
+    teapot_mesh.model_matrix  = glm::mat4(1.0);
+    mesh_initialize_VAO(teapot_mesh, 3);
+    array_append(mesh_data_array, &teapot_mesh);
 
     // World grid
     Mesh grid_mesh = grid_create_mesh();
-    GLMesh grid_glmesh = create_gl_mesh_instance(grid_mesh, 3);
+    mesh_initialize_VAO(grid_mesh, 3);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -718,7 +720,7 @@ int main()
     glEnable(GL_STENCIL_TEST);
 
     while (!glfwWindowShouldClose(window)) {
-        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
         current_frame = glfwGetTime();
@@ -734,13 +736,21 @@ int main()
         last_frame = current_frame;
 
         glfwGetWindowSize(window, &window_width, &window_height);
-        glm::mat4 vp = get_view_matrix(window_width, window_height);
+
+        glm::mat4 Projection = glm::perspective(
+            glm::radians(45.0f),
+            (float)window_width / (float)window_height,
+            0.1f, 10000.0f
+        );
+
+        glm::mat4 view_matrix = get_view_matrix();
+        glm::mat4 vp = Projection * view_matrix;
 
         u32 element_count = mesh_data_array.element_count;
 
         if (render_selction_buffer)
         {
-            render_selection_buffer(window, vp, &cube_glmesh);
+            render_selection_buffer(window, vp);
         }
         else
         {
@@ -750,28 +760,25 @@ int main()
 
             for (int i=0; i < element_count; ++i)
             {
-                Mesh* cube_mesh = (Mesh*)ArrayGetIndex(mesh_data_array, i);
+                Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
                 u32 offset = 0;
                 float ratioX = offset / float(UINT_MAX);
 
-                glm::vec3 position = cube_mesh->model_matrix[3];
+                glm::vec3 position = mesh->model_matrix[3];
                 SphericalCoords spherical_coords = getSphericalCoords(position);
                 spherical_coords.theta += (1 - ratioX) * 0.01f ;
                 glm::vec3 new_position = getCartesianCoords(spherical_coords);
                 glm::vec3 diff = new_position - position;
                 diff[1] += current_frame / 200.0f;
 
-                cube_mesh->model_matrix = glm::translate(cube_mesh->model_matrix, diff);
+                /*mesh->model_matrix = glm::translate(mesh->model_matrix, diff);*/
 
-                cube_glmesh.mesh = cube_mesh;
-
-                /*printf("%p is %p\n", cube_mesh, mouse_over_mesh);*/
                 GLuint object_shader;
-                if(cube_mesh == mouse_over_mesh)
+                if(mesh == mouse_over_mesh)
                 {
                     object_shader = hover_shader_program_id;
                 }
-                else if (cube_mesh == selected_mesh)
+                else if (mesh == selected_mesh)
                 {
                     object_shader = selection_shader_program_id;
                 }
@@ -779,22 +786,22 @@ int main()
                 {
                     object_shader = default_shader_program_id;
                 }
-                drawGLMesh(cube_glmesh, GL_TRIANGLES, object_shader, vp);
 
-                if (cube_mesh == selected_mesh)
+                drawMesh(*mesh, GL_TRIANGLES, object_shader, vp);
+
+                if (mesh == selected_mesh)
                 {
                     glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
                     glStencilMask(0x00);
                     glDisable(GL_DEPTH_TEST);
 
-                    cube_glmesh.mesh = cube_mesh;
-                    glm::mat4 mvp = vp * cube_glmesh.mesh->model_matrix;
+                    glm::mat4 mvp = vp * mesh->model_matrix;
 
                     glUseProgram(outline_shader_program_id);
                     GLuint matrix_id = glGetUniformLocation(outline_shader_program_id, "MVP");
                     glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
-                    glBindVertexArray(cube_glmesh.vao);
-                    glDrawArrays(GL_TRIANGLES, 0, cube_glmesh.mesh->vertex_array_length / 3.0f);
+                    glBindVertexArray(mesh->vao);
+                    glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
 
                     glBindVertexArray(0);
                     glStencilMask(0xFF);
@@ -804,9 +811,7 @@ int main()
 
             }
             // World grid
-            glUseProgram(default_shader_program_id);
-            glBindVertexArray(grid_glmesh.vao);
-            drawGLMesh(grid_glmesh, GL_LINES, default_shader_program_id, vp);
+            drawMesh(grid_mesh, GL_LINES, default_shader_program_id, vp);
         }
 
 
@@ -815,7 +820,7 @@ int main()
         glEnable(GL_BLEND);
         glEnable(GL_CULL_FACE);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glm::mat4 projection = glm::ortho(0.0f, (float)window_width, 0.0f, (float)window_height);
+        glm::mat4 ortho_projection = glm::ortho(0.0f, (float)window_width, 0.0f, (float)window_height);
 
         unsigned int VAO, VBO;
         glGenVertexArrays(1, &VAO);
@@ -841,7 +846,7 @@ int main()
         glUseProgram(font_shader_program_id);
         glUniform3f(glGetUniformLocation(font_shader_program_id, "textColor"), color.x, color.y, color.z);
         glUniformMatrix4fv(
-            glGetUniformLocation(font_shader_program_id, "projection"), 1, GL_FALSE, &projection[0][0]);
+            glGetUniformLocation(font_shader_program_id, "ortho_projection"), 1, GL_FALSE, &ortho_projection[0][0]);
         glActiveTexture(GL_TEXTURE0);
         glBindVertexArray(VAO);
 
@@ -880,18 +885,17 @@ int main()
         }
         glBindVertexArray(0);
         glBindTexture(GL_TEXTURE_2D, 0);
-
         glDisable(GL_BLEND);
 
         glfwSwapBuffers(window);
 
         // NOTE(kk): render selection back buffer before polling events
-        render_selection_buffer(window, vp, &cube_glmesh);
+        render_selection_buffer(window, vp);
         glfwPollEvents();
     }
 
 
-    ArrayFree(mesh_data_array);
+    array_free(mesh_data_array);
 
     glfwTerminate();
     return 0;

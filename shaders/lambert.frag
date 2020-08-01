@@ -5,5 +5,5 @@ in vec3 fragmentColor;
 in vec3 normal;
 
 void main() {
-    color = fragmentColor;
+    color = normal;
 }

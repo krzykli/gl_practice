@@ -88,6 +88,7 @@ Mesh cube_create_mesh()
     mesh.vertex_array_length = sizeof(cube_vertices) / sizeof(*cube_vertices);
     mesh.vertex_positions = cube_vertices;
     mesh.vertex_colors = cube_colors;
+    mesh.vertex_normals = NULL;
     mesh.model_matrix  = glm::mat4(1.0);
     return mesh;
 }

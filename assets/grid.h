@@ -61,6 +61,7 @@ Mesh grid_create_mesh()
     Mesh grid_mesh;
     grid_mesh.vertex_positions = grid_verts;
     grid_mesh.vertex_colors = grid_color;
+    grid_mesh.vertex_normals = NULL;
     grid_mesh.vertex_array_length = sizeof(grid_verts) / sizeof(GLfloat);
     grid_mesh.model_matrix  = glm::mat4(1.0);
     return grid_mesh;
