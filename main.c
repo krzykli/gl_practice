@@ -103,15 +103,8 @@ v2i get_mouse_pixel_coords(GLFWwindow* window)
 
 
 
-glm::mat4 get_view_matrix(int width, int height)
+glm::mat4 get_view_matrix()
 {
-    // TODO(kk): move projection out of here
-    glm::mat4 Projection = glm::perspective(
-        glm::radians(45.0f),
-        (float)width / (float)height,
-        0.1f, 10000.0f
-    );
-
     glm::mat4 View = glm::mat4();
 
     // USER INTERACTION
@@ -186,8 +179,7 @@ glm::mat4 get_view_matrix(int width, int height)
     global_cam.target = global_cam.position - glm::vec3(camera_world[2]) * targetDist;
     global_cam.up = glm::vec3(camera_world[1]);
 
-    glm::mat4 vp = Projection * View;
-    return vp;
+    return View;
 }
 
 
@@ -284,8 +276,8 @@ void render_selection_buffer(GLFWwindow* window, glm::mat4 vp, GLMesh* glmesh)
     u32 element_count = mesh_data_array.element_count;
     for (u32 i=0; i < element_count; ++i)
     {
-        Mesh* cube_mesh = (Mesh*)array_get_index(mesh_data_array, i);
-        glmesh->mesh = cube_mesh;
+        Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
+        glmesh->mesh = mesh;
 
         byte bytes[4];
         decompose_u32(i, bytes);
@@ -685,7 +677,7 @@ int main()
     assert(rv);
 
     GLuint lambert_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(font_frag_id, "shaders/lambert.frag");
+    rv = compileShader(lambert_frag_id, "shaders/lambert.frag");
     assert(rv);
 
     GLuint default_shader_program_id = glCreateProgram();
@@ -724,7 +716,7 @@ int main()
     glLinkProgram(font_shader_program_id);
 
     GLuint lambert_shader_program_id = glCreateProgram();
-    glAttachShader(font_shader_program_id, font_vert_id);
+    glAttachShader(default_shader_program_id, default_vert_id);
     glAttachShader(lambert_shader_program_id, lambert_frag_id);
     glLinkProgram(lambert_shader_program_id);
 
@@ -747,8 +739,8 @@ int main()
     Mesh teapot_mesh;
     teapot_mesh.vertex_array_length = vertex_array.element_count;
     teapot_mesh.vertex_positions = (float*)vertex_array.base_ptr;
-    teapot_mesh.vertex_normals = (float*)normals_array.base_ptr;
-    teapot_mesh.vertex_colors = NULL;
+    teapot_mesh.vertex_normals = NULL;
+    teapot_mesh.vertex_colors = (float*)normals_array.base_ptr;
     teapot_mesh.model_matrix  = glm::mat4(1.0);
     /*array_append(mesh_data_array, &teapot_mesh);*/
     GLMesh teapot_glmesh = create_gl_mesh_instance(teapot_mesh, 3);
@@ -783,7 +775,15 @@ int main()
         last_frame = current_frame;
 
         glfwGetWindowSize(window, &window_width, &window_height);
-        glm::mat4 vp = get_view_matrix(window_width, window_height);
+
+        glm::mat4 Projection = glm::perspective(
+            glm::radians(45.0f),
+            (float)window_width / (float)window_height,
+            0.1f, 10000.0f
+        );
+
+        glm::mat4 view_matrix = get_view_matrix();
+        glm::mat4 vp = Projection * view_matrix;
 
         u32 element_count = mesh_data_array.element_count;
 
@@ -864,7 +864,7 @@ int main()
         glEnable(GL_BLEND);
         glEnable(GL_CULL_FACE);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glm::mat4 projection = glm::ortho(0.0f, (float)window_width, 0.0f, (float)window_height);
+        glm::mat4 ortho_projection = glm::ortho(0.0f, (float)window_width, 0.0f, (float)window_height);
 
         unsigned int VAO, VBO;
         glGenVertexArrays(1, &VAO);
@@ -890,7 +890,7 @@ int main()
         glUseProgram(font_shader_program_id);
         glUniform3f(glGetUniformLocation(font_shader_program_id, "textColor"), color.x, color.y, color.z);
         glUniformMatrix4fv(
-            glGetUniformLocation(font_shader_program_id, "projection"), 1, GL_FALSE, &projection[0][0]);
+            glGetUniformLocation(font_shader_program_id, "ortho_projection"), 1, GL_FALSE, &ortho_projection[0][0]);
         glActiveTexture(GL_TEXTURE0);
         glBindVertexArray(VAO);
 

@@ -6,7 +6,6 @@
 
 #define print(format, ...) \
     printf("%s\t| %s:%d\t| " format "\n", __FUNCTION__, __FILE__, __LINE__, ##__VA_ARGS__)
-
 #endif
 
 void* debug_malloc(size_t size, const char* file, u32 line)
