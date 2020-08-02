@@ -60,7 +60,7 @@ void mesh_initialize_VAO(Mesh &mesh, u32 vector_dimensions)
 
         // shader layout 2
         glEnableVertexAttribArray(2);
-        glVertexAttribPointer(1, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
+        glVertexAttribPointer(2, vector_dimensions, GL_FLOAT, GL_FALSE, 0, NULL);
     }
     mesh.vao = vao;
 }

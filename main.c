@@ -1,3 +1,10 @@
+// TODOs
+// - Manipulators
+// - picker shader fixes
+// - dict struct
+// - lights
+// - transform stack?
+// - UI widgets
 #include <cmath>
 
 #include <stdio.h>
@@ -54,8 +61,8 @@ static Mesh* mouse_over_mesh = NULL;
 const float TWO_M_PI = M_PI*2.0f;
 const float M_PI_OVER_TWO = M_PI/2.0f;
 
+GLuint default_shader_program_id;
 GLuint picker_shader_program_id;
-GLuint hover_shader_program_id;
 GLuint selection_shader_program_id;
 
 
@@ -245,6 +252,14 @@ void drawMesh(Mesh &mesh, GLenum mode, GLuint shader_program_id, glm::mat4 vp)
     GLuint matrix_id = glGetUniformLocation(shader_program_id, "MVP");
     glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
 
+    GLuint uniform_camera_pos = glGetUniformLocation(shader_program_id, "camera_position");
+    if(uniform_camera_pos)
+        glUniform3fv(uniform_camera_pos, 1, &global_cam.position[0]);
+
+    GLuint uni_hover_mult = glGetUniformLocation(shader_program_id, "hover_multiplier");
+    if(uni_hover_mult)
+        glUniform1f(uni_hover_mult, 0.0f);
+
     GLfloat time = glfwGetTime();
     GLuint time_id = glGetUniformLocation(shader_program_id, "time");
     glUniform1f(time_id, time);
@@ -405,6 +420,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         /*Mesh cube_mesh = cube_create_random_on_sphere(xor_state);*/
         Mesh cube_mesh = cube_create_random_on_plane(xor_state);
         mesh_initialize_VAO(cube_mesh, 3);
+        cube_mesh.shader_id = default_shader_program_id;
         array_append(mesh_data_array, &cube_mesh);
         /*print("count %i", mesh_data_array.element_count);*/
     }
@@ -488,7 +504,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
     window = glfwCreateWindow(
-        window_width, window_height, "Hello World", NULL, NULL);
+        window_width, window_height, "OpenGL Practice", NULL, NULL);
 
     if (!window) {
         glfwTerminate();
@@ -581,7 +597,7 @@ int main()
 
     // END FREETYPE INIT
 
-    GLuint default_shader_program_id = create_shader(
+    default_shader_program_id = create_shader(
         "shaders/default.vert", "shaders/default.frag");
 
     GLuint outline_shader_program_id = create_shader(
@@ -592,9 +608,6 @@ int main()
 
     picker_shader_program_id = create_shader(
         "shaders/default.vert", "shaders/picker.frag");
-
-    hover_shader_program_id = create_shader(
-        "shaders/default.vert", "shaders/hover.frag");
 
     selection_shader_program_id = create_shader(
         "shaders/default.vert", "shaders/selection.frag");
@@ -624,6 +637,9 @@ int main()
     Mesh suzanne_mesh = objloader_create_mesh("assets/suzanne.obj");
     suzanne_mesh.model_matrix = glm::translate(suzanne_mesh.model_matrix,
                                                glm::vec3(0,5,0));
+    suzanne_mesh.model_matrix = glm::scale(suzanne_mesh.model_matrix,
+                                           glm::vec3(2,2,2));
+    suzanne_mesh.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &suzanne_mesh);
 
     Mesh teapot_mesh = objloader_create_mesh("assets/teapot2.obj");
@@ -631,6 +647,7 @@ int main()
                                           glm::vec3(0.5,0.5,0.5));
     teapot_mesh.model_matrix = glm::translate(teapot_mesh.model_matrix,
                                               glm::vec3(0,-5,0));
+    teapot_mesh.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &teapot_mesh);
 
     // World grid
@@ -649,6 +666,7 @@ int main()
         current_frame = glfwGetTime();
         delta_time = current_frame - last_frame;
         float time_in_ms = delta_time * 1000.0f;
+
         // NOTE(kk): Lock framerate
         while (time_in_ms < 16.666f)
         {
@@ -695,19 +713,24 @@ int main()
                 diff[1] += current_frame / 200.0f;
 
                 /*mesh->model_matrix = glm::translate(mesh->model_matrix, diff);*/
-
                 GLuint object_shader;
-                if(mesh == mouse_over_mesh)
-                {
-                    object_shader = hover_shader_program_id;
-                }
-                else if (mesh == selected_mesh)
+                if (mesh == selected_mesh)
                 {
                     object_shader = selection_shader_program_id;
                 }
                 else
                 {
-                    object_shader = default_shader_program_id;
+                    object_shader = mesh->shader_id;
+                }
+
+                GLuint uni_hover_mult = glGetUniformLocation(object_shader, "hover_multiplier");
+                if(mesh == mouse_over_mesh)
+                {
+                    glUniform1f(uni_hover_mult, 0.5f);
+                }
+                else
+                {
+                    glUniform1f(uni_hover_mult, 0.0f);
                 }
 
                 drawMesh(*mesh, GL_TRIANGLES, object_shader, vp);
@@ -723,6 +746,9 @@ int main()
                     glUseProgram(outline_shader_program_id);
                     GLuint matrix_id = glGetUniformLocation(outline_shader_program_id, "MVP");
                     glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
+                    GLuint uniform_camera_pos = glGetUniformLocation(outline_shader_program_id, "camera_position");
+                    if(uniform_camera_pos)
+                        glUniform3fv(uniform_camera_pos, 1, &global_cam.position[0]);
                     glBindVertexArray(mesh->vao);
                     glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
 

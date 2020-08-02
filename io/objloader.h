@@ -134,8 +134,8 @@ Mesh objloader_create_mesh(const char* file_path)
     Mesh mesh;
     mesh.vertex_array_length = vertex_array.element_count;
     mesh.vertex_positions = (float*)vertex_array.base_ptr;
-    mesh.vertex_normals = NULL;
-    mesh.vertex_colors = (float*)normals_array.base_ptr;
+    mesh.vertex_normals = (float*)normals_array.base_ptr;
+    mesh.vertex_colors = NULL;
     mesh.model_matrix  = glm::mat4(1.0);
 
     mesh_initialize_VAO(mesh, 3);

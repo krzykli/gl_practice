@@ -1,7 +1,8 @@
 #version 410
 
-out vec3 color;
 in vec3 fragmentColor;
+out vec3 color;
+
 uniform float time;
 
 void main() {
