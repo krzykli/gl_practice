@@ -59,6 +59,60 @@ GLuint hover_shader_program_id;
 GLuint selection_shader_program_id;
 
 
+void loadFileContents(const char* file_path, char* buffer)
+{
+    FILE* fh;
+    fh = fopen(file_path, "r");
+    fread(buffer, 1000, 1, fh);
+    fclose(fh);
+}
+
+
+u8 compileShader(GLuint shader_id, const char* shader_path)
+{
+    u32 buffer_size = 1000;
+    char* shader_buffer = (char*)calloc(1, sizeof(char) * buffer_size);
+    /*memset((void*)shader_buffer, 0, buffer_size);*/
+
+    loadFileContents(shader_path, shader_buffer);
+
+    glShaderSource(shader_id, 1, &shader_buffer, NULL);
+    glCompileShader(shader_id);
+    free(shader_buffer);
+
+    GLint is_compiled = 0;
+    glGetShaderiv(shader_id, GL_COMPILE_STATUS, &is_compiled);
+    if(is_compiled == GL_FALSE)
+    {
+        GLint max_length = 0;
+        glGetShaderiv(shader_id, GL_INFO_LOG_LENGTH, &max_length);
+        char errorLog[max_length];
+        glGetShaderInfoLog(shader_id, max_length, &max_length, &errorLog[0]);
+        glDeleteShader(shader_id);
+        print("%s", errorLog);
+        return 0;
+    }
+    return 1;
+}
+
+
+GLuint create_shader(const char* vertex_shader, const char* fragment_shader)
+{
+    GLuint shader_program_id = glCreateProgram();
+    GLuint vert_id = glCreateShader(GL_VERTEX_SHADER);
+    u8 rv = compileShader(vert_id, vertex_shader);
+    assert(rv);
+
+    glAttachShader(shader_program_id, vert_id);
+    GLuint frag_id = glCreateShader(GL_FRAGMENT_SHADER);
+    rv = compileShader(frag_id, fragment_shader);
+    assert(rv);
+
+    glAttachShader(shader_program_id, frag_id);
+    glLinkProgram(shader_program_id);
+    return shader_program_id;
+}
+
 
 u32 get_selected_mesh_index(byte* color)
 {
@@ -100,7 +154,6 @@ v2i get_mouse_pixel_coords(GLFWwindow* window)
 
     return result;
 }
-
 
 
 glm::mat4 get_view_matrix()
@@ -224,7 +277,8 @@ void render_selection_buffer(GLFWwindow* window, glm::mat4 vp)
         byte bytes[4];
         decompose_u32(i, bytes);
         // Create an ID from mesh index
-        glm::vec4 picker_color = glm::vec4(255 - bytes[0], 255 - bytes[1], 255 - bytes[2], 255 - bytes[3]);
+        glm::vec4 picker_color = glm::vec4(
+            255 - bytes[0], 255 - bytes[1], 255 - bytes[2], 255 - bytes[3]);
 
         // Draw
         glUseProgram(picker_shader_program_id);
@@ -274,7 +328,6 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
         mouse_over_mesh = NULL;
     }
 }
-
 
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
@@ -345,7 +398,6 @@ void focus_on_mesh(Mesh* mesh)
 }
 
 
-
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (key == GLFW_KEY_UP)
@@ -401,43 +453,6 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 }
 
 
-void loadFileContents(const char* file_path, char* buffer)
-{
-    FILE* fh;
-    fh = fopen(file_path, "r");
-    fread(buffer, 1000, 1, fh);
-    fclose(fh);
-}
-
-
-u8 compileShader(GLuint shader_id, const char* shader_path)
-{
-    u32 buffer_size = 1000;
-    char* shader_buffer = (char*)calloc(1, sizeof(char) * buffer_size);
-    /*memset((void*)shader_buffer, 0, buffer_size);*/
-
-    loadFileContents(shader_path, shader_buffer);
-
-    glShaderSource(shader_id, 1, &shader_buffer, NULL);
-    glCompileShader(shader_id);
-    free(shader_buffer);
-
-    GLint is_compiled = 0;
-    glGetShaderiv(shader_id, GL_COMPILE_STATUS, &is_compiled);
-    if(is_compiled == GL_FALSE)
-    {
-        GLint max_length = 0;
-        glGetShaderiv(shader_id, GL_INFO_LOG_LENGTH, &max_length);
-        char errorLog[max_length];
-        glGetShaderInfoLog(shader_id, max_length, &max_length, &errorLog[0]);
-        glDeleteShader(shader_id);
-        print("%s", errorLog);
-        return 0;
-    }
-    return 1;
-}
-
-
 size_t array_defaul_resizer(void* array_pointer)
 {
     Array* arr = (Array*)array_pointer;
@@ -457,6 +472,7 @@ struct Character {
 };
 
 static Character characters[128];
+
 
 int main()
 {
@@ -490,9 +506,9 @@ int main()
     glfwSetScrollCallback(window, scrollCallback);
 
     print("OpenGL version supported by this platform: %s",
-            glGetString(GL_VERSION));
+          glGetString(GL_VERSION));
     print("GLSL version supported by this platform: %s",
-            glGetString(GL_SHADING_LANGUAGE_VERSION));
+          glGetString(GL_SHADING_LANGUAGE_VERSION));
     // END GL INIT
 
     // FREETYPE INIT
@@ -565,94 +581,29 @@ int main()
 
     // END FREETYPE INIT
 
+    GLuint default_shader_program_id = create_shader(
+        "shaders/default.vert", "shaders/default.frag");
 
+    GLuint outline_shader_program_id = create_shader(
+        "shaders/outline.vert", "shaders/outline.frag");
 
-    // TODO(kk): write a convenience function for shaders and improve assert
-    // VERTEX SHADERS
-    GLuint default_vert_id = glCreateShader(GL_VERTEX_SHADER);
-    u8 rv = compileShader(default_vert_id, "shaders/default.vert");
-    assert(rv);
+    GLuint noop_shader_program_id = create_shader(
+        "shaders/noop.vert", "shaders/outline.frag");
 
-    GLuint noop_vert_id = glCreateShader(GL_VERTEX_SHADER);
-    rv = compileShader(noop_vert_id, "shaders/noop.vert");
-    assert(rv);
+    picker_shader_program_id = create_shader(
+        "shaders/default.vert", "shaders/picker.frag");
 
-    GLuint outline_vert_id = glCreateShader(GL_VERTEX_SHADER);
-    rv = compileShader(outline_vert_id, "shaders/outline.vert");
-    assert(rv);
+    hover_shader_program_id = create_shader(
+        "shaders/default.vert", "shaders/hover.frag");
 
-    GLuint font_vert_id = glCreateShader(GL_VERTEX_SHADER);
-    rv = compileShader(font_vert_id, "shaders/font.vert");
-    assert(rv);
+    selection_shader_program_id = create_shader(
+        "shaders/default.vert", "shaders/selection.frag");
 
-    // FRAGMENT SHADERS
-    GLuint default_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(default_frag_id, "shaders/default.frag");
-    assert(rv);
+    GLuint font_shader_program_id = create_shader(
+        "shaders/font.vert", "shaders/font.frag");
 
-    GLuint outline_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(outline_frag_id, "shaders/outline.frag");
-    assert(rv);
-
-    GLuint picker_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(picker_frag_id, "shaders/picker.frag");
-    assert(rv);
-
-    GLuint selection_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(selection_frag_id, "shaders/selection.frag");
-    assert(rv);
-
-    GLuint hover_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(hover_frag_id, "shaders/hover.frag");
-    assert(rv);
-
-    GLuint font_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(font_frag_id, "shaders/font.frag");
-    assert(rv);
-
-    GLuint lambert_frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(lambert_frag_id, "shaders/lambert.frag");
-    assert(rv);
-
-    GLuint default_shader_program_id = glCreateProgram();
-    glAttachShader(default_shader_program_id, default_vert_id);
-    glAttachShader(default_shader_program_id, default_frag_id);
-    glLinkProgram(default_shader_program_id);
-
-    GLuint outline_shader_program_id = glCreateProgram();
-    glAttachShader(outline_shader_program_id, outline_vert_id);
-    glAttachShader(outline_shader_program_id, outline_frag_id);
-    glLinkProgram(outline_shader_program_id);
-
-    GLuint noop_shader_program_id = glCreateProgram();
-    glAttachShader(noop_shader_program_id, noop_vert_id);
-    glAttachShader(noop_shader_program_id, outline_frag_id);
-    glLinkProgram(noop_shader_program_id);
-
-    picker_shader_program_id = glCreateProgram();
-    glAttachShader(picker_shader_program_id, default_vert_id);
-    glAttachShader(picker_shader_program_id, picker_frag_id);
-    glLinkProgram(picker_shader_program_id);
-
-    hover_shader_program_id = glCreateProgram();
-    glAttachShader(hover_shader_program_id, default_vert_id);
-    glAttachShader(hover_shader_program_id, hover_frag_id);
-    glLinkProgram(hover_shader_program_id);
-
-    selection_shader_program_id = glCreateProgram();
-    glAttachShader(selection_shader_program_id, default_vert_id);
-    glAttachShader(selection_shader_program_id, selection_frag_id);
-    glLinkProgram(selection_shader_program_id);
-
-    GLuint font_shader_program_id = glCreateProgram();
-    glAttachShader(font_shader_program_id, font_vert_id);
-    glAttachShader(font_shader_program_id, font_frag_id);
-    glLinkProgram(font_shader_program_id);
-
-    GLuint lambert_shader_program_id = glCreateProgram();
-    glAttachShader(default_shader_program_id, default_vert_id);
-    glAttachShader(lambert_shader_program_id, lambert_frag_id);
-    glLinkProgram(lambert_shader_program_id);
+    GLuint lambert_shader_program_id = create_shader(
+        "shaders/default.vert", "shaders/lambert.frag");
 
     // WORLD
     glm::vec3 pos = glm::vec3(10, 8, 10);
@@ -670,44 +621,16 @@ int main()
     double current_frame = glfwGetTime();
     double last_frame= current_frame;
 
-    // TODO add convenience for creating obj meshes
-    Array suzanne_vertex_array;
-    array_init(suzanne_vertex_array, sizeof(float), 1024*1024);
-    Array suzanne_uv_array;
-    array_init(suzanne_uv_array, sizeof(float), 1024*1024);
-    Array suzanne_normals_array;
-    array_init(suzanne_normals_array, sizeof(float), 1024*1024);
-
-    const char* suzanne_file_path = "assets/suzanne.obj";
-    objloader_load(suzanne_file_path, suzanne_vertex_array, suzanne_uv_array, suzanne_normals_array);
-    Mesh suzanne_mesh;
-    suzanne_mesh.vertex_array_length = suzanne_vertex_array.element_count;
-    suzanne_mesh.vertex_positions = (float*)suzanne_vertex_array.base_ptr;
-    suzanne_mesh.vertex_normals = NULL;
-    suzanne_mesh.vertex_colors = (float*)suzanne_normals_array.base_ptr;
-    suzanne_mesh.model_matrix  = glm::mat4(1.0);
-    suzanne_mesh.model_matrix = glm::translate(suzanne_mesh.model_matrix, glm::vec3(-10,-10,-10));
-    suzanne_mesh.model_matrix = glm::scale(suzanne_mesh.model_matrix, glm::vec3(3,3,3));
-
-    mesh_initialize_VAO(suzanne_mesh, 3);
+    Mesh suzanne_mesh = objloader_create_mesh("assets/suzanne.obj");
+    suzanne_mesh.model_matrix = glm::translate(suzanne_mesh.model_matrix,
+                                               glm::vec3(0,5,0));
     array_append(mesh_data_array, &suzanne_mesh);
 
-    Array teapot_vertex_array;
-    array_init(teapot_vertex_array, sizeof(float), 1024*1024);
-    Array teapot_uv_array;
-    array_init(teapot_uv_array, sizeof(float), 1024*1024);
-    Array teapot_normals_array;
-    array_init(teapot_normals_array, sizeof(float), 1024*1024);
-
-    const char* teapot_file_path = "assets/teapot2.obj";
-    objloader_load(teapot_file_path, teapot_vertex_array, teapot_uv_array, teapot_normals_array);
-    Mesh teapot_mesh;
-    teapot_mesh.vertex_array_length = teapot_vertex_array.element_count;
-    teapot_mesh.vertex_positions = (float*)teapot_vertex_array.base_ptr;
-    teapot_mesh.vertex_normals = NULL;
-    teapot_mesh.vertex_colors = (float*)teapot_normals_array.base_ptr;
-    teapot_mesh.model_matrix  = glm::mat4(1.0);
-    mesh_initialize_VAO(teapot_mesh, 3);
+    Mesh teapot_mesh = objloader_create_mesh("assets/teapot2.obj");
+    teapot_mesh.model_matrix = glm::scale(teapot_mesh.model_matrix,
+                                          glm::vec3(0.5,0.5,0.5));
+    teapot_mesh.model_matrix = glm::translate(teapot_mesh.model_matrix,
+                                              glm::vec3(0,-5,0));
     array_append(mesh_data_array, &teapot_mesh);
 
     // World grid

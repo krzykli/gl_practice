@@ -119,4 +119,27 @@ u32 objloader_load(const char* file_path,
 
     return 0;
 }
+
+Mesh objloader_create_mesh(const char* file_path)
+{
+    Array vertex_array;
+    array_init(vertex_array, sizeof(float), 1024*1024);
+    Array uv_array;
+    array_init(uv_array, sizeof(float), 1024*1024);
+    Array normals_array;
+    array_init(normals_array, sizeof(float), 1024*1024);
+
+    objloader_load(file_path, vertex_array, uv_array, normals_array);
+
+    Mesh mesh;
+    mesh.vertex_array_length = vertex_array.element_count;
+    mesh.vertex_positions = (float*)vertex_array.base_ptr;
+    mesh.vertex_normals = NULL;
+    mesh.vertex_colors = (float*)normals_array.base_ptr;
+    mesh.model_matrix  = glm::mat4(1.0);
+
+    mesh_initialize_VAO(mesh, 3);
+    return mesh;
+}
+
 #endif //OBJLOADERH
