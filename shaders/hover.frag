@@ -2,7 +2,8 @@
 
 out vec3 color;
 in vec3 fragmentColor;
+in vec3 normal;
 
 void main() {
-    color = vec3(fragmentColor) * 1.5;
+    color = normalize(normal);
 }

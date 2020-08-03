@@ -115,6 +115,8 @@ u32 objloader_load(const char* file_path,
         }
     }
     array_free(temp_vertex_array);
+    array_free(temp_uv_array);
+    array_free(temp_normal_array);
     fclose(fp);
 
     return 0;

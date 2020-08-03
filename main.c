@@ -62,6 +62,7 @@ const float TWO_M_PI = M_PI*2.0f;
 const float M_PI_OVER_TWO = M_PI/2.0f;
 
 GLuint default_shader_program_id;
+GLuint hover_shader_program_id;
 GLuint picker_shader_program_id;
 GLuint selection_shader_program_id;
 
@@ -255,10 +256,6 @@ void drawMesh(Mesh &mesh, GLenum mode, GLuint shader_program_id, glm::mat4 vp)
     GLuint uniform_camera_pos = glGetUniformLocation(shader_program_id, "camera_position");
     if(uniform_camera_pos)
         glUniform3fv(uniform_camera_pos, 1, &global_cam.position[0]);
-
-    GLuint uni_hover_mult = glGetUniformLocation(shader_program_id, "hover_multiplier");
-    if(uni_hover_mult)
-        glUniform1f(uni_hover_mult, 0.0f);
 
     GLfloat time = glfwGetTime();
     GLuint time_id = glGetUniformLocation(shader_program_id, "time");
@@ -603,6 +600,9 @@ int main()
     GLuint outline_shader_program_id = create_shader(
         "shaders/outline.vert", "shaders/outline.frag");
 
+    hover_shader_program_id = create_shader(
+        "shaders/outline.vert", "shaders/hover.frag");
+
     GLuint noop_shader_program_id = create_shader(
         "shaders/noop.vert", "shaders/outline.frag");
 
@@ -642,11 +642,28 @@ int main()
     suzanne_mesh.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &suzanne_mesh);
 
+    Mesh suzanne_mesh2 = objloader_create_mesh("assets/suzanne.obj");
+    suzanne_mesh2.model_matrix = glm::translate(suzanne_mesh2.model_matrix,
+                                               glm::vec3(5,5,0));
+    suzanne_mesh2.model_matrix = glm::scale(suzanne_mesh2.model_matrix,
+                                           glm::vec3(2,2,2));
+    suzanne_mesh2.shader_id = lambert_shader_program_id;
+    array_append(mesh_data_array, &suzanne_mesh2);
+
+    // Crash with 3rd
+    Mesh suzanne_mesh3 = objloader_create_mesh("assets/suzanne.obj");
+    suzanne_mesh3.model_matrix = glm::translate(suzanne_mesh3.model_matrix,
+                                               glm::vec3(-5,5,0));
+    suzanne_mesh3.model_matrix = glm::scale(suzanne_mesh3.model_matrix,
+                                           glm::vec3(2,2,2));
+    suzanne_mesh3.shader_id = lambert_shader_program_id;
+    array_append(mesh_data_array, &suzanne_mesh3);
+
     Mesh teapot_mesh = objloader_create_mesh("assets/teapot2.obj");
     teapot_mesh.model_matrix = glm::scale(teapot_mesh.model_matrix,
                                           glm::vec3(0.5,0.5,0.5));
     teapot_mesh.model_matrix = glm::translate(teapot_mesh.model_matrix,
-                                              glm::vec3(0,-5,0));
+                                              glm::vec3(0,-10,0));
     teapot_mesh.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &teapot_mesh);
 
@@ -702,6 +719,7 @@ int main()
             for (int i=0; i < element_count; ++i)
             {
                 Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
+                /* legacy anim test
                 u32 offset = 0;
                 float ratioX = offset / float(UINT_MAX);
 
@@ -712,57 +730,58 @@ int main()
                 glm::vec3 diff = new_position - position;
                 diff[1] += current_frame / 200.0f;
 
-                /*mesh->model_matrix = glm::translate(mesh->model_matrix, diff);*/
-                GLuint object_shader;
-                if (mesh == selected_mesh)
-                {
-                    object_shader = selection_shader_program_id;
-                }
-                else
-                {
-                    object_shader = mesh->shader_id;
-                }
+                mesh->model_matrix = glm::translate(mesh->model_matrix, diff);
+                */
 
-                GLuint uni_hover_mult = glGetUniformLocation(object_shader, "hover_multiplier");
-                if(mesh == mouse_over_mesh)
-                {
-                    glUniform1f(uni_hover_mult, 0.5f);
-                }
-                else
-                {
-                    glUniform1f(uni_hover_mult, 0.0f);
-                }
-
+                GLuint object_shader = mesh->shader_id;
                 drawMesh(*mesh, GL_TRIANGLES, object_shader, vp);
+            }
 
-                if (mesh == selected_mesh)
+
+            // STENCIL
+            for (int i=0; i < element_count; ++i)
+            {
+                Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
+
+                glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+                glStencilMask(0x00);
+                glDisable(GL_DEPTH_TEST);
+
+                if (mesh == selected_mesh || mesh == mouse_over_mesh)
                 {
-                    glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
-                    glStencilMask(0x00);
-                    glDisable(GL_DEPTH_TEST);
+                    GLuint shader_id = 0;
+                    if (mesh == mouse_over_mesh)
+                    {
+                        shader_id = hover_shader_program_id;
+                    }
+                    else
+                    {
+                        shader_id = outline_shader_program_id;
+                    }
+
+                    glUseProgram(shader_id);
 
                     glm::mat4 mvp = vp * mesh->model_matrix;
-
-                    glUseProgram(outline_shader_program_id);
-                    GLuint matrix_id = glGetUniformLocation(outline_shader_program_id, "MVP");
+                    GLuint matrix_id = glGetUniformLocation(shader_id, "MVP");
                     glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
-                    GLuint uniform_camera_pos = glGetUniformLocation(outline_shader_program_id, "camera_position");
+
+                    GLuint uniform_camera_pos = glGetUniformLocation(shader_id, "camera_position");
                     if(uniform_camera_pos)
                         glUniform3fv(uniform_camera_pos, 1, &global_cam.position[0]);
+
                     glBindVertexArray(mesh->vao);
                     glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
 
-                    glBindVertexArray(0);
-                    glStencilMask(0xFF);
-                    glStencilFunc(GL_ALWAYS, 0, 0xFF);
-                    glEnable(GL_DEPTH_TEST);
                 }
+                glBindVertexArray(0);
+                glStencilMask(0xFF);
+                glStencilFunc(GL_ALWAYS, 0, 0xFF);
+                glEnable(GL_DEPTH_TEST);
 
             }
             // World grid
             drawMesh(grid_mesh, GL_LINES, default_shader_program_id, vp);
         }
-
 
         // Draw text
         // https://learnopengl.com/In-Practice/Text-Rendering
