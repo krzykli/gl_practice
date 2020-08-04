@@ -1,5 +1,6 @@
 // TODOs
 // - Manipulators
+// - Indexed draws
 // - picker shader fixes
 // - dict struct
 // - lights
@@ -31,6 +32,7 @@ FT_Library  library;
 
 #include "assets/grid.h"
 #include "assets/cube.h"
+#include "assets/manipulator.h"
 #include "io/objloader.h"
 
 static Camera global_cam;
@@ -664,12 +666,16 @@ int main()
                                           glm::vec3(0.5,0.5,0.5));
     teapot_mesh.model_matrix = glm::translate(teapot_mesh.model_matrix,
                                               glm::vec3(0,-10,0));
+    teapot_mesh.model_matrix = glm::rotate(teapot_mesh.model_matrix, 45.0f, glm::vec3(1,1,0));
     teapot_mesh.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &teapot_mesh);
 
     // World grid
     Mesh grid_mesh = grid_create_mesh();
     mesh_initialize_VAO(grid_mesh, 3);
+
+    Mesh manip_mesh = manipulator_create_mesh();
+    mesh_initialize_VAO(manip_mesh, 3);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -685,12 +691,12 @@ int main()
         float time_in_ms = delta_time * 1000.0f;
 
         // NOTE(kk): Lock framerate
-        while (time_in_ms < 16.666f)
-        {
-            current_frame = glfwGetTime();
-            delta_time = current_frame - last_frame;
-            time_in_ms = delta_time * 1000.0f;
-        }
+        /*while (time_in_ms < 16.666f)*/
+        /*{*/
+            /*current_frame = glfwGetTime();*/
+            /*delta_time = current_frame - last_frame;*/
+            /*time_in_ms = delta_time * 1000.0f;*/
+        /*}*/
         last_frame = current_frame;
 
         glfwGetWindowSize(window, &window_width, &window_height);
@@ -738,6 +744,7 @@ int main()
             }
 
 
+            bool active_selection = 0;
             // STENCIL
             for (int i=0; i < element_count; ++i)
             {
@@ -750,13 +757,15 @@ int main()
                 if (mesh == selected_mesh || mesh == mouse_over_mesh)
                 {
                     GLuint shader_id = 0;
+                    if (mesh == selected_mesh)
+                    {
+                        shader_id = outline_shader_program_id;
+                        manip_mesh.model_matrix = mesh->model_matrix;
+                        active_selection = 1;
+                    }
                     if (mesh == mouse_over_mesh)
                     {
                         shader_id = hover_shader_program_id;
-                    }
-                    else
-                    {
-                        shader_id = outline_shader_program_id;
                     }
 
                     glUseProgram(shader_id);
@@ -780,6 +789,14 @@ int main()
 
             }
             // World grid
+            if(active_selection)
+            {
+                glDisable(GL_DEPTH_TEST);
+                glDisable(GL_CULL_FACE);
+                drawMesh(manip_mesh, GL_TRIANGLES, default_shader_program_id, vp);
+                glEnable(GL_DEPTH_TEST);
+                glEnable(GL_CULL_FACE);
+            }
             drawMesh(grid_mesh, GL_LINES, default_shader_program_id, vp);
         }
 
