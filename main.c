@@ -682,6 +682,10 @@ int main()
     glEnable(GL_LINE_SMOOTH);
     glEnable(GL_STENCIL_TEST);
 
+    unsigned int text_VAO, text_VBO;
+    glGenVertexArrays(1, &text_VAO);
+    glGenBuffers(1, &text_VBO);
+
     while (!glfwWindowShouldClose(window)) {
         glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -807,11 +811,8 @@ int main()
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glm::mat4 ortho_projection = glm::ortho(0.0f, (float)window_width, 0.0f, (float)window_height);
 
-        unsigned int VAO, VBO;
-        glGenVertexArrays(1, &VAO);
-        glGenBuffers(1, &VBO);
-        glBindVertexArray(VAO);
-        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBindVertexArray(text_VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, text_VBO);
         // The 2D quad requires 6 vertices of 4 floats each, so we reserve 6 *
         // 4 floats of memory. Because we'll be updating the content of the
         // VBO's memory quite often we'll allocate the memory with
@@ -833,7 +834,7 @@ int main()
         glUniformMatrix4fv(
             glGetUniformLocation(font_shader_program_id, "ortho_projection"), 1, GL_FALSE, &ortho_projection[0][0]);
         glActiveTexture(GL_TEXTURE0);
-        glBindVertexArray(VAO);
+        glBindVertexArray(text_VAO);
 
         char text[8];
         sprintf(text, "%.2fms", time_in_ms);
@@ -860,7 +861,7 @@ int main()
             // render glyph texture over quad
             glBindTexture(GL_TEXTURE_2D, ch.textureID);
             // update content of VBO memory
-            glBindBuffer(GL_ARRAY_BUFFER, VBO);
+            glBindBuffer(GL_ARRAY_BUFFER, text_VBO);
             glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices); 
             glBindBuffer(GL_ARRAY_BUFFER, 0);
             // render quad
