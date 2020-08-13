@@ -26,6 +26,7 @@
 #include "debug.h"
 #include "camera.h"
 #include "array.h"
+#include "dict.h"
 #include "mesh.h"
 #include "text.h"
 
@@ -543,6 +544,60 @@ int main()
 
     GLuint lambert_shader_program_id = create_shader(
         "shaders/default.vert", "shaders/lambert.frag");
+
+
+    Array keys;
+    array_init(keys, sizeof(char*) * 64, 128);
+
+    const char* key2 = "what";
+    const char* key3 = "noidea";
+    const char* key1 = "something";
+    const char* key4 = "meshy";
+
+    array_append(keys, &key1);
+    array_append(keys, &key2);
+    array_append(keys, &key3);
+    array_append(keys, &key4);
+
+    Array values;
+    array_init(values, sizeof(float) * 64, 128);
+
+    float val1 = 10;
+    float val2 = 11;
+    float val3 = 12;
+    float val4 = 13;
+
+    array_append(values, &val1);
+    array_append(values, &val2);
+    array_append(values, &val3);
+    array_append(values, &val4);
+
+    Dict test_dict;
+    dict_init(test_dict, keys, values);
+    float result;
+    u32 index;
+
+    void* resulty = dict_get(test_dict, "what", index);
+    if(resulty != NULL)
+    {
+        result = *(float*)resulty;
+        print("%f", result);
+        print("%i", index);
+    }
+
+    const char* test_123 = "what";
+    float newval = 666;
+    dict_map(test_dict, test_123, &newval);
+
+    resulty = dict_get(test_dict, "what", index);
+    if(resulty != NULL)
+    {
+        result = *(float*)resulty;
+        print("%f", result);
+        print("%i", index);
+    }
+
+    return 0;
 
     // WORLD
     glm::vec3 pos = glm::vec3(10, 8, 10);
