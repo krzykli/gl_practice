@@ -43,6 +43,9 @@ static float cursor_delta_y = 0;
 static float last_press_x = 0;
 static float last_press_y = 0;
 
+static float press_start_x = 0;
+static float press_start_y = 0;
+
 static int window_width = 640;
 static int window_height = 480;
 
@@ -346,50 +349,47 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 {
-    // TODO(kk): cleanup actions
-    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && !mods)
-    {
-        v2i pixel_coords = get_mouse_pixel_coords(window);
-        glReadBuffer(GL_BACK);
-
-        byte pixel_color[4];
-        glReadPixels(pixel_coords.x, pixel_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &pixel_color);
-
-        u32 mesh_id = get_selected_mesh_index(pixel_color);
-        print("Pixel color %hhu %hhu %hhu %hhu, mesh id %u", pixel_color[0], pixel_color[1], pixel_color[2], pixel_color[3], mesh_id);
-
-        if(mesh_id != UINT_MAX)
-        {
-            print("Selected %i", mesh_id);
-            selected_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
-        }
-        else
-        {
-            selected_mesh = NULL;
-        }
-    }
-
-    if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && mods & GLFW_MOD_ALT)
+    if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
     {
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
         last_press_x = xpos;
         last_press_y = ypos;
-        rotate_mode = true;
-    }
 
-    if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && mods & GLFW_MOD_CONTROL)
-    {
-        double xpos, ypos;
-        glfwGetCursorPos(window, &xpos, &ypos);
-        last_press_x = xpos;
-        last_press_y = ypos;
-        pan_mode = true;
-        pan_vector_y = global_cam.up;
-        if (pan_vector_y.y > 0)
-            pan_vector_x = -getCameraRightVector(global_cam);
-        else
-            pan_vector_x = getCameraRightVector(global_cam);
+        if (!mods)
+        {
+            v2i pixel_coords = get_mouse_pixel_coords(window);
+            glReadBuffer(GL_BACK);
+
+            byte pixel_color[4];
+            glReadPixels(pixel_coords.x, pixel_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &pixel_color);
+
+            u32 mesh_id = get_selected_mesh_index(pixel_color);
+            print("Pixel color %hhu %hhu %hhu %hhu, mesh id %u", pixel_color[0], pixel_color[1], pixel_color[2], pixel_color[3], mesh_id);
+
+            if(mesh_id != UINT_MAX)
+            {
+                print("Selected %i", mesh_id);
+                selected_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
+            }
+            else
+            {
+                selected_mesh = NULL;
+            }
+        }
+        else if (mods & GLFW_MOD_ALT)
+        {
+            rotate_mode = true;
+        }
+        else if (mods & GLFW_MOD_CONTROL)
+        {
+            pan_mode = true;
+            pan_vector_y = global_cam.up;
+            if (pan_vector_y.y > 0)
+                pan_vector_x = -getCameraRightVector(global_cam);
+            else
+                pan_vector_x = getCameraRightVector(global_cam);
+        }
     }
 
     if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
@@ -597,7 +597,6 @@ int main()
         print("%i", index);
     }
 
-    return 0;
 
     // WORLD
     glm::vec3 pos = glm::vec3(10, 8, 10);
