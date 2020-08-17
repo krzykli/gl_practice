@@ -8,6 +8,7 @@
 // - lights
 // - transform stack?
 // - UI widgets
+// - gradient background
 #include <cmath>
 
 #include <stdio.h>
@@ -59,6 +60,7 @@ static Array mesh_data_array;
 static xorshift32_state xor_state;
 
 static bool render_selction_buffer = false;
+static bool draw_viewport_marquee = false;
 
 static Mesh* selected_mesh = NULL;
 static Mesh* mouse_over_mesh = NULL;
@@ -72,6 +74,29 @@ GLuint picker_shader_program_id;
 GLuint selection_shader_program_id;
 
 
+typedef struct v2i
+{
+    u32 x;
+    u32 y;
+} v2i;
+
+
+typedef struct v2f
+{
+    float x;
+    float y;
+} v2f;
+
+
+typedef struct Marquee
+{
+    v2f bottom;
+    v2f top;
+} Marquee;
+
+Marquee marquee;
+
+
 void loadFileContents(const char* file_path, char* buffer)
 {
     FILE* fh;
@@ -83,9 +108,9 @@ void loadFileContents(const char* file_path, char* buffer)
 
 u8 compileShader(GLuint shader_id, const char* shader_path)
 {
+    print("Compiling shader %s", shader_path);
     u32 buffer_size = 1000;
     char* shader_buffer = (char*)calloc(1, sizeof(char) * buffer_size);
-    /*memset((void*)shader_buffer, 0, buffer_size);*/
 
     loadFileContents(shader_path, shader_buffer);
 
@@ -138,11 +163,49 @@ u32 get_selected_mesh_index(byte* color)
 }
 
 
-typedef struct v2i
+void draw_marquee(glm::mat4 ortho_projection, GLuint outline_shader_program_id, GLuint inside_shader_program_id)
 {
-    u32 x;
-    u32 y;
-} v2i;
+    v2f start = marquee.bottom;
+    v2f end = marquee.top;
+    float vertices[4][2] = {
+        {start.x, end.y},
+        {start.x, start.y},
+        {end.x, start.y},
+        {end.x, end.y}
+    };
+
+    GLuint VAO;  // memleak move
+    glGenVertexArrays(1, &VAO);
+    glBindVertexArray(VAO);
+
+    GLuint VBO;  // memleak move
+    glGenBuffers(1, &VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER,
+                 8 * sizeof(float),
+                 vertices,
+                 GL_DYNAMIC_DRAW);
+
+    glEnable(GL_STENCIL_TEST);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(outline_shader_program_id);
+    glUniformMatrix4fv(
+        glGetUniformLocation(outline_shader_program_id, "ortho_projection"), 1, GL_FALSE, &ortho_projection[0][0]);
+
+    glDrawArrays(GL_LINE_LOOP, 0, 4);
+
+    glUseProgram(inside_shader_program_id);
+    glUniformMatrix4fv(
+        glGetUniformLocation(inside_shader_program_id, "ortho_projection"), 1, GL_FALSE, &ortho_projection[0][0]);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    glBindVertexArray(0);
+    glDisable(GL_BLEND);
+}
+
 
 
 v2i get_mouse_pixel_coords(GLFWwindow* window)
@@ -356,8 +419,12 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         last_press_x = xpos;
         last_press_y = ypos;
 
+        press_start_x = xpos;
+        press_start_y = ypos;
+
         if (!mods)
         {
+            print("Press");
             v2i pixel_coords = get_mouse_pixel_coords(window);
             glReadBuffer(GL_BACK);
 
@@ -376,6 +443,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
             {
                 selected_mesh = NULL;
             }
+            draw_viewport_marquee = true;
         }
         else if (mods & GLFW_MOD_ALT)
         {
@@ -396,6 +464,8 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
     {
         rotate_mode = false;
         pan_mode = false;
+        print("Release");
+        draw_viewport_marquee = false;
     }
 
 }
@@ -541,6 +611,12 @@ int main()
 
     GLuint font_shader_program_id = create_shader(
         "shaders/font.vert", "shaders/font.frag");
+
+    GLuint marquee_outline_shader_program_id = create_shader(
+        "shaders/marquee.vert", "shaders/marquee.frag");
+
+    GLuint marquee_inside_shader_program_id = create_shader(
+        "shaders/marquee.vert", "shaders/marquee_inside.frag");
 
     GLuint lambert_shader_program_id = create_shader(
         "shaders/default.vert", "shaders/lambert.frag");
@@ -806,6 +882,27 @@ int main()
         scale = 0.5f;
         pos = glm::vec2(window_width/2 - helvetica_characters[0].size.x * strlen(text), 10);
         text_draw("OpenGL test", color, pos, scale, helvetica_characters, ortho_projection, font_shader_program_id);
+
+        if(draw_viewport_marquee)
+        {
+            v2f p1;
+            v2f p2;
+
+            float norm_press_start_y = window_height - press_start_y;
+            float norm_last_press_y = window_height - last_press_y;
+
+            p1.x = fmin(press_start_x, last_press_x);
+            p1.y = fmin(norm_press_start_y, norm_last_press_y);
+
+            p2.x = fmin(fmax(press_start_x, last_press_x), window_width);
+            p2.y = fmin(fmax(norm_press_start_y, norm_last_press_y), window_height);
+            marquee.bottom.x = p1.x;
+            marquee.bottom.y = p1.y;
+            marquee.top.x = p2.x;
+            marquee.top.y = p2.y;
+
+            draw_marquee(ortho_projection, marquee_outline_shader_program_id, marquee_inside_shader_program_id);
+        }
 
         glfwSwapBuffers(window);
 
