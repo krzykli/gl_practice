@@ -106,7 +106,7 @@ void loadFileContents(const char* file_path, char* buffer)
 }
 
 
-u8 compileShader(GLuint shader_id, const char* shader_path)
+u8 compile_shader(GLuint shader_id, const char* shader_path)
 {
     print("Compiling shader %s", shader_path);
     u32 buffer_size = 1000;
@@ -138,12 +138,12 @@ GLuint create_shader(const char* vertex_shader, const char* fragment_shader)
 {
     GLuint shader_program_id = glCreateProgram();
     GLuint vert_id = glCreateShader(GL_VERTEX_SHADER);
-    u8 rv = compileShader(vert_id, vertex_shader);
+    u8 rv = compile_shader(vert_id, vertex_shader);
     assert(rv);
 
     glAttachShader(shader_program_id, vert_id);
     GLuint frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(frag_id, fragment_shader);
+    rv = compile_shader(frag_id, fragment_shader);
     assert(rv);
 
     glAttachShader(shader_program_id, frag_id);
@@ -207,12 +207,8 @@ void draw_marquee(glm::mat4 ortho_projection, GLuint outline_shader_program_id, 
 }
 
 
-
-v2i get_mouse_pixel_coords(GLFWwindow* window)
+v2i hdpi_pixel_convert(GLFWwindow* window, float xpos, float ypos)
 {
-    double xpos, ypos;
-    glfwGetCursorPos(window, &xpos, &ypos);
-
     int frame_width, frame_height;
     glfwGetFramebufferSize(window, &frame_width, &frame_height);
 
@@ -229,6 +225,14 @@ v2i get_mouse_pixel_coords(GLFWwindow* window)
     v2i result = {x_px, y_px};
 
     return result;
+}
+
+
+v2i get_mouse_pixel_coords(GLFWwindow* window)
+{
+    double xpos, ypos;
+    glfwGetCursorPos(window, &xpos, &ypos);
+    return hdpi_pixel_convert(window, xpos, ypos);
 }
 
 
@@ -466,6 +470,51 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         pan_mode = false;
         print("Release");
         draw_viewport_marquee = false;
+
+        byte pixel_color[4];
+
+        v2i top_hdpi = hdpi_pixel_convert(window, marquee.top.x, marquee.top.y);
+        v2i bottom_hdpi = hdpi_pixel_convert(window, marquee.bottom.x, marquee.bottom.y);
+
+        int width = top_hdpi.x - bottom_hdpi.x;
+        int height = bottom_hdpi.y - top_hdpi.y;
+
+        print("points %u/%u", bottom_hdpi.x, bottom_hdpi.y);
+        print("width/height %i/%i", width, height);
+        u32 pixel_count = width * height;
+        u32 buffer_size = pixel_count * sizeof(u32);
+        u32* buffer = (u32*)malloc(buffer_size);
+
+        int window_width, window_height;
+        glfwGetFramebufferSize(window, &window_width, &window_height);
+
+        glReadBuffer(GL_BACK);
+        // NOTE(kk): Need to flip bottom because the values are already stored "correctly"
+        glReadPixels(bottom_hdpi.x, window_height - bottom_hdpi.y, width, height,
+                     GL_RGBA, GL_UNSIGNED_BYTE, (void*)buffer);
+
+
+        Array mesh_indices;
+        array_init(mesh_indices, sizeof(u32) * 64, 128);
+
+        for(u32* ptr = buffer; ptr < buffer + pixel_count; ++ptr) 
+        {
+            u32 boit = *ptr;
+            byte bytes[4];
+            decompose_u32((u32)*ptr, bytes);
+            u8 r = bytes[0];
+            u8 g = bytes[1];
+            u8 b = bytes[2];
+            u8 a = bytes[3];
+            if(r*b*g*a != 0)
+            {
+                u32 mesh_id = get_selected_mesh_index(bytes);
+                selected_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
+                /*print("Pixel color %hhu %hhu %hhu %hhu", r, g, b, a);*/
+            }
+        }
+
+        free(buffer);
     }
 
 }
@@ -653,25 +702,18 @@ int main()
     float result;
     u32 index;
 
-    void* resulty = dict_get(test_dict, "what", index);
-    if(resulty != NULL)
-    {
-        result = *(float*)resulty;
-        print("%f", result);
-        print("%i", index);
-    }
 
-    const char* test_123 = "what";
-    float newval = 666;
-    dict_map(test_dict, test_123, &newval);
+    /*const char* test_123 = "what";*/
+    /*float newval = 666;*/
+    /*dict_map(test_dict, test_123, &newval);*/
 
-    resulty = dict_get(test_dict, "what", index);
-    if(resulty != NULL)
-    {
-        result = *(float*)resulty;
-        print("%f", result);
-        print("%i", index);
-    }
+    /*resulty = dict_get(test_dict, "what", index);*/
+    /*if(resulty != NULL)*/
+    /*{*/
+        /*result = *(float*)resulty;*/
+        /*print("%f", result);*/
+        /*print("%i", index);*/
+    /*}*/
 
 
     // WORLD
