@@ -8,6 +8,7 @@
 // - lights
 // - transform stack?
 // - UI widgets
+// - gradient background
 #include <cmath>
 
 #include <stdio.h>
@@ -59,8 +60,9 @@ static Array mesh_data_array;
 static xorshift32_state xor_state;
 
 static bool render_selction_buffer = false;
+static bool draw_viewport_marquee = false;
 
-static Mesh* selected_mesh = NULL;
+static Array selected_mesh_indices;
 static Mesh* mouse_over_mesh = NULL;
 
 const float TWO_M_PI = M_PI*2.0f;
@@ -72,6 +74,29 @@ GLuint picker_shader_program_id;
 GLuint selection_shader_program_id;
 
 
+typedef struct v2i
+{
+    u32 x;
+    u32 y;
+} v2i;
+
+
+typedef struct v2f
+{
+    float x;
+    float y;
+} v2f;
+
+
+typedef struct Marquee
+{
+    v2f bottom;
+    v2f top;
+} Marquee;
+
+Marquee marquee;
+
+
 void loadFileContents(const char* file_path, char* buffer)
 {
     FILE* fh;
@@ -81,11 +106,11 @@ void loadFileContents(const char* file_path, char* buffer)
 }
 
 
-u8 compileShader(GLuint shader_id, const char* shader_path)
+u8 compile_shader(GLuint shader_id, const char* shader_path)
 {
+    print("Compiling shader %s", shader_path);
     u32 buffer_size = 1000;
     char* shader_buffer = (char*)calloc(1, sizeof(char) * buffer_size);
-    /*memset((void*)shader_buffer, 0, buffer_size);*/
 
     loadFileContents(shader_path, shader_buffer);
 
@@ -113,12 +138,12 @@ GLuint create_shader(const char* vertex_shader, const char* fragment_shader)
 {
     GLuint shader_program_id = glCreateProgram();
     GLuint vert_id = glCreateShader(GL_VERTEX_SHADER);
-    u8 rv = compileShader(vert_id, vertex_shader);
+    u8 rv = compile_shader(vert_id, vertex_shader);
     assert(rv);
 
     glAttachShader(shader_program_id, vert_id);
     GLuint frag_id = glCreateShader(GL_FRAGMENT_SHADER);
-    rv = compileShader(frag_id, fragment_shader);
+    rv = compile_shader(frag_id, fragment_shader);
     assert(rv);
 
     glAttachShader(shader_program_id, frag_id);
@@ -138,18 +163,52 @@ u32 get_selected_mesh_index(byte* color)
 }
 
 
-typedef struct v2i
+void draw_marquee(glm::mat4 ortho_projection, GLuint outline_shader_program_id, GLuint inside_shader_program_id)
 {
-    u32 x;
-    u32 y;
-} v2i;
+    v2f start = marquee.bottom;
+    v2f end = marquee.top;
+    float vertices[4][2] = {
+        {start.x, end.y},
+        {start.x, start.y},
+        {end.x, start.y},
+        {end.x, end.y}
+    };
+
+    GLuint VAO;  // memleak move
+    glGenVertexArrays(1, &VAO);
+    glBindVertexArray(VAO);
+
+    GLuint VBO;  // memleak move
+    glGenBuffers(1, &VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER,
+                 8 * sizeof(float),
+                 vertices,
+                 GL_DYNAMIC_DRAW);
+
+    glEnable(GL_STENCIL_TEST);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(outline_shader_program_id);
+    glUniformMatrix4fv(
+        glGetUniformLocation(outline_shader_program_id, "ortho_projection"), 1, GL_FALSE, &ortho_projection[0][0]);
+
+    glDrawArrays(GL_LINE_LOOP, 0, 4);
+
+    glUseProgram(inside_shader_program_id);
+    glUniformMatrix4fv(
+        glGetUniformLocation(inside_shader_program_id, "ortho_projection"), 1, GL_FALSE, &ortho_projection[0][0]);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    glBindVertexArray(0);
+    glDisable(GL_BLEND);
+}
 
 
-v2i get_mouse_pixel_coords(GLFWwindow* window)
+v2i hdpi_pixel_convert(GLFWwindow* window, float xpos, float ypos)
 {
-    double xpos, ypos;
-    glfwGetCursorPos(window, &xpos, &ypos);
-
     int frame_width, frame_height;
     glfwGetFramebufferSize(window, &frame_width, &frame_height);
 
@@ -166,6 +225,14 @@ v2i get_mouse_pixel_coords(GLFWwindow* window)
     v2i result = {x_px, y_px};
 
     return result;
+}
+
+
+v2i get_mouse_pixel_coords(GLFWwindow* window)
+{
+    double xpos, ypos;
+    glfwGetCursorPos(window, &xpos, &ypos);
+    return hdpi_pixel_convert(window, xpos, ypos);
 }
 
 
@@ -356,8 +423,12 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         last_press_x = xpos;
         last_press_y = ypos;
 
-        if (!mods)
+        press_start_x = xpos;
+        press_start_y = ypos;
+
+        if (!mods || mods & GLFW_MOD_SHIFT)
         {
+            print("Press");
             v2i pixel_coords = get_mouse_pixel_coords(window);
             glReadBuffer(GL_BACK);
 
@@ -370,12 +441,31 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
             if(mesh_id != UINT_MAX)
             {
                 print("Selected %i", mesh_id);
-                selected_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
+                bool already_selected = false;
+                for (int i=0; i < selected_mesh_indices.element_count; ++i)
+                {
+                    u32* present_idx = (u32*)array_get_index(selected_mesh_indices, i);
+                    if(*present_idx == mesh_id)
+                        already_selected = true;
+                }
+                if (!already_selected)
+                {
+                    if(mods & GLFW_MOD_SHIFT)
+                    {
+                        array_append(selected_mesh_indices, &mesh_id);
+                    }
+                    else
+                    {
+                        array_clear(selected_mesh_indices);
+                        array_append(selected_mesh_indices, &mesh_id);
+                    }
+                }
             }
             else
             {
-                selected_mesh = NULL;
+                array_clear(selected_mesh_indices);
             }
+            draw_viewport_marquee = true;
         }
         else if (mods & GLFW_MOD_ALT)
         {
@@ -396,6 +486,77 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
     {
         rotate_mode = false;
         pan_mode = false;
+        print("Release");
+        draw_viewport_marquee = false;
+
+        byte pixel_color[4];
+
+        v2i top_hdpi = hdpi_pixel_convert(window, marquee.top.x, marquee.top.y);
+        v2i bottom_hdpi = hdpi_pixel_convert(window, marquee.bottom.x, marquee.bottom.y);
+
+        int width = top_hdpi.x - bottom_hdpi.x;
+        int height = bottom_hdpi.y - top_hdpi.y;
+
+        print("points %u/%u", bottom_hdpi.x, bottom_hdpi.y);
+        print("width/height %i/%i", width, height);
+        u32 pixel_count = width * height;
+        u32 buffer_size = pixel_count * sizeof(u32);
+        u32* buffer = (u32*)malloc(buffer_size);
+
+        int window_width, window_height;
+        glfwGetFramebufferSize(window, &window_width, &window_height);
+
+        glReadBuffer(GL_BACK);
+        // NOTE(kk): Need to flip bottom because the values are already stored "correctly"
+        glReadPixels(bottom_hdpi.x, window_height - bottom_hdpi.y, width, height,
+                     GL_RGBA, GL_UNSIGNED_BYTE, (void*)buffer);
+
+
+        Array mesh_indices;
+        array_init(mesh_indices, sizeof(u32), 128);
+
+        for(u32* ptr = buffer; ptr < buffer + pixel_count; ++ptr) 
+        {
+            u32 boit = *ptr;
+            byte bytes[4];
+            decompose_u32((u32)*ptr, bytes);
+            u8 r = bytes[0];
+            u8 g = bytes[1];
+            u8 b = bytes[2];
+            u8 a = bytes[3];
+            if(r*b*g*a != 0)
+            {
+                u32 mesh_id = get_selected_mesh_index(bytes);
+                // TODO(kk): It should be really a hashmap or a set
+                bool found = false;
+                for (int i=0; i < mesh_indices.element_count; ++i)
+                {
+                    u32* mesh_index = (u32*)array_get_index(mesh_indices, i);
+                    if(*mesh_index == mesh_id)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if(!found)
+                {
+                    array_append(mesh_indices, &mesh_id);
+                }
+            }
+        }
+        if(mesh_indices.element_count > 0)
+        {
+            array_clear(selected_mesh_indices);
+            for (int i=0; i < mesh_indices.element_count; ++i)
+            {
+                u32* mesh_index = (u32*)array_get_index(mesh_indices, i);
+                array_append(selected_mesh_indices, mesh_index);
+            }
+        }
+
+        array_free(mesh_indices);
+
+        free(buffer);
     }
 
 }
@@ -432,9 +593,11 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     }
     else if (key == GLFW_KEY_F and action == GLFW_PRESS)
     {
-        if (selected_mesh != NULL)
+        if (selected_mesh_indices.element_count > 0)
         {
-            focus_on_mesh(selected_mesh);
+            u32* mesh_idx = (u32*)array_get_index(selected_mesh_indices, 0);
+            Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, *mesh_idx);
+            focus_on_mesh(mesh);
         }
         else
         {
@@ -542,6 +705,12 @@ int main()
     GLuint font_shader_program_id = create_shader(
         "shaders/font.vert", "shaders/font.frag");
 
+    GLuint marquee_outline_shader_program_id = create_shader(
+        "shaders/marquee.vert", "shaders/marquee.frag");
+
+    GLuint marquee_inside_shader_program_id = create_shader(
+        "shaders/marquee.vert", "shaders/marquee_inside.frag");
+
     GLuint lambert_shader_program_id = create_shader(
         "shaders/default.vert", "shaders/lambert.frag");
 
@@ -577,25 +746,18 @@ int main()
     float result;
     u32 index;
 
-    void* resulty = dict_get(test_dict, "what", index);
-    if(resulty != NULL)
-    {
-        result = *(float*)resulty;
-        print("%f", result);
-        print("%i", index);
-    }
 
-    const char* test_123 = "what";
-    float newval = 666;
-    dict_map(test_dict, test_123, &newval);
+    /*const char* test_123 = "what";*/
+    /*float newval = 666;*/
+    /*dict_map(test_dict, test_123, &newval);*/
 
-    resulty = dict_get(test_dict, "what", index);
-    if(resulty != NULL)
-    {
-        result = *(float*)resulty;
-        print("%f", result);
-        print("%i", index);
-    }
+    /*resulty = dict_get(test_dict, "what", index);*/
+    /*if(resulty != NULL)*/
+    /*{*/
+        /*result = *(float*)resulty;*/
+        /*print("%f", result);*/
+        /*print("%i", index);*/
+    /*}*/
 
 
     // WORLD
@@ -608,6 +770,9 @@ int main()
     mesh_data_array.element_size = sizeof(Mesh);
     array_init(mesh_data_array, sizeof(Mesh), max_meshes);
     mesh_data_array.resize_func = array_defaul_resizer;
+
+    u32 max_init_selection= 100;
+    array_init(selected_mesh_indices, sizeof(u32), max_init_selection);
 
     xor_state.a = 10;
 
@@ -744,10 +909,19 @@ int main()
                 glStencilMask(0x00);
                 glDisable(GL_DEPTH_TEST);
 
-                if (mesh == selected_mesh || mesh == mouse_over_mesh)
+                bool is_selected = false;
+
+                for (int j=0; j < selected_mesh_indices.element_count; ++j)
+                {
+                    u32* selected_idx = (u32*)array_get_index(selected_mesh_indices, j);
+                    if(*selected_idx == i)
+                        is_selected = true;
+                }
+
+                if (is_selected || mesh == mouse_over_mesh)
                 {
                     GLuint shader_id = 0;
-                    if (mesh == selected_mesh)
+                    if (is_selected)
                     {
                         shader_id = outline_shader_program_id;
                         manip_mesh.model_matrix = mesh->model_matrix;
@@ -806,6 +980,27 @@ int main()
         scale = 0.5f;
         pos = glm::vec2(window_width/2 - helvetica_characters[0].size.x * strlen(text), 10);
         text_draw("OpenGL test", color, pos, scale, helvetica_characters, ortho_projection, font_shader_program_id);
+
+        if(draw_viewport_marquee)
+        {
+            v2f p1;
+            v2f p2;
+
+            float norm_press_start_y = window_height - press_start_y;
+            float norm_last_press_y = window_height - last_press_y;
+
+            p1.x = fmin(press_start_x, last_press_x);
+            p1.y = fmin(norm_press_start_y, norm_last_press_y);
+
+            p2.x = fmin(fmax(press_start_x, last_press_x), window_width);
+            p2.y = fmin(fmax(norm_press_start_y, norm_last_press_y), window_height);
+            marquee.bottom.x = p1.x;
+            marquee.bottom.y = p1.y;
+            marquee.top.x = p2.x;
+            marquee.top.y = p2.y;
+
+            draw_marquee(ortho_projection, marquee_outline_shader_program_id, marquee_inside_shader_program_id);
+        }
 
         glfwSwapBuffers(window);
 

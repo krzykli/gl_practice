@@ -109,6 +109,13 @@ void* array_get_index(Array& arr, u32 index)
 }
 
 
+void array_clear(Array& arr)
+{
+    free(arr.base_ptr);
+    array_init(arr, arr.element_size, arr.max_element_count);
+}
+
+
 void array_free(Array& arr)
 {
     free(arr.base_ptr);
