@@ -6,6 +6,22 @@
 
 #include "array.h"
 
+
+// djb2
+// http://www.cse.yorku.ca/~oz/hash.html
+u64 hash(unsigned char *str)
+{
+    u32 hash = 5381;
+    int c;
+
+    while((c =* str++))
+    {
+        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+    }
+    return hash;
+}
+
+
 typedef struct Dict
 {
      Array keys;

@@ -62,7 +62,7 @@ static xorshift32_state xor_state;
 static bool render_selction_buffer = false;
 static bool draw_viewport_marquee = false;
 
-static Mesh* selected_mesh = NULL;
+static Array selected_mesh_indices;
 static Mesh* mouse_over_mesh = NULL;
 
 const float TWO_M_PI = M_PI*2.0f;
@@ -426,7 +426,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         press_start_x = xpos;
         press_start_y = ypos;
 
-        if (!mods)
+        if (!mods || mods & GLFW_MOD_SHIFT)
         {
             print("Press");
             v2i pixel_coords = get_mouse_pixel_coords(window);
@@ -441,11 +441,29 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
             if(mesh_id != UINT_MAX)
             {
                 print("Selected %i", mesh_id);
-                selected_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
+                bool already_selected = false;
+                for (int i=0; i < selected_mesh_indices.element_count; ++i)
+                {
+                    u32* present_idx = (u32*)array_get_index(selected_mesh_indices, i);
+                    if(*present_idx == mesh_id)
+                        already_selected = true;
+                }
+                if (!already_selected)
+                {
+                    if(mods & GLFW_MOD_SHIFT)
+                    {
+                        array_append(selected_mesh_indices, &mesh_id);
+                    }
+                    else
+                    {
+                        array_clear(selected_mesh_indices);
+                        array_append(selected_mesh_indices, &mesh_id);
+                    }
+                }
             }
             else
             {
-                selected_mesh = NULL;
+                array_clear(selected_mesh_indices);
             }
             draw_viewport_marquee = true;
         }
@@ -495,7 +513,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 
 
         Array mesh_indices;
-        array_init(mesh_indices, sizeof(u32) * 64, 128);
+        array_init(mesh_indices, sizeof(u32), 128);
 
         for(u32* ptr = buffer; ptr < buffer + pixel_count; ++ptr) 
         {
@@ -509,10 +527,34 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
             if(r*b*g*a != 0)
             {
                 u32 mesh_id = get_selected_mesh_index(bytes);
-                selected_mesh = (Mesh*)array_get_index(mesh_data_array, mesh_id);
-                /*print("Pixel color %hhu %hhu %hhu %hhu", r, g, b, a);*/
+                // TODO(kk): It should be really a hashmap or a set
+                bool found = false;
+                for (int i=0; i < mesh_indices.element_count; ++i)
+                {
+                    u32* mesh_index = (u32*)array_get_index(mesh_indices, i);
+                    if(*mesh_index == mesh_id)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if(!found)
+                {
+                    array_append(mesh_indices, &mesh_id);
+                }
             }
         }
+        if(mesh_indices.element_count > 0)
+        {
+            array_clear(selected_mesh_indices);
+            for (int i=0; i < mesh_indices.element_count; ++i)
+            {
+                u32* mesh_index = (u32*)array_get_index(mesh_indices, i);
+                array_append(selected_mesh_indices, mesh_index);
+            }
+        }
+
+        array_free(mesh_indices);
 
         free(buffer);
     }
@@ -551,9 +593,11 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     }
     else if (key == GLFW_KEY_F and action == GLFW_PRESS)
     {
-        if (selected_mesh != NULL)
+        if (selected_mesh_indices.element_count > 0)
         {
-            focus_on_mesh(selected_mesh);
+            u32* mesh_idx = (u32*)array_get_index(selected_mesh_indices, 0);
+            Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, *mesh_idx);
+            focus_on_mesh(mesh);
         }
         else
         {
@@ -727,6 +771,9 @@ int main()
     array_init(mesh_data_array, sizeof(Mesh), max_meshes);
     mesh_data_array.resize_func = array_defaul_resizer;
 
+    u32 max_init_selection= 100;
+    array_init(selected_mesh_indices, sizeof(u32), max_init_selection);
+
     xor_state.a = 10;
 
     double current_frame = glfwGetTime();
@@ -862,10 +909,19 @@ int main()
                 glStencilMask(0x00);
                 glDisable(GL_DEPTH_TEST);
 
-                if (mesh == selected_mesh || mesh == mouse_over_mesh)
+                bool is_selected = false;
+
+                for (int j=0; j < selected_mesh_indices.element_count; ++j)
+                {
+                    u32* selected_idx = (u32*)array_get_index(selected_mesh_indices, j);
+                    if(*selected_idx == i)
+                        is_selected = true;
+                }
+
+                if (is_selected || mesh == mouse_over_mesh)
                 {
                     GLuint shader_id = 0;
-                    if (mesh == selected_mesh)
+                    if (is_selected)
                     {
                         shader_id = outline_shader_program_id;
                         manip_mesh.model_matrix = mesh->model_matrix;
