@@ -1,6 +1,5 @@
 // TODOs
 // - Manipulators
-// - multiple selection
 // - cleanup text rendering
 // - Indexed draws
 // - picker shader fixes
@@ -30,6 +29,7 @@
 #include "dict.h"
 #include "mesh.h"
 #include "text.h"
+#include "background.c"
 
 #include "assets/grid.h"
 #include "assets/cube.h"
@@ -65,6 +65,8 @@ static bool draw_viewport_marquee = false;
 static Array selected_mesh_indices;
 static Mesh* mouse_over_mesh = NULL;
 
+static bool is_running = true;
+
 const float TWO_M_PI = M_PI*2.0f;
 const float M_PI_OVER_TWO = M_PI/2.0f;
 
@@ -92,6 +94,7 @@ typedef struct Marquee
 {
     v2f bottom;
     v2f top;
+    float vertices[4][2];
 } Marquee;
 
 Marquee marquee;
@@ -163,10 +166,11 @@ u32 get_selected_mesh_index(byte* color)
 }
 
 
-void draw_marquee(glm::mat4 ortho_projection, GLuint outline_shader_program_id, GLuint inside_shader_program_id)
+void draw_marquee(GLuint vao, GLuint vbo, glm::mat4 ortho_projection, GLuint outline_shader_program_id, GLuint inside_shader_program_id)
 {
     v2f start = marquee.bottom;
     v2f end = marquee.top;
+
     float vertices[4][2] = {
         {start.x, end.y},
         {start.x, start.y},
@@ -174,34 +178,39 @@ void draw_marquee(glm::mat4 ortho_projection, GLuint outline_shader_program_id, 
         {end.x, end.y}
     };
 
-    GLuint VAO;  // memleak move
-    glGenVertexArrays(1, &VAO);
-    glBindVertexArray(VAO);
-
-    GLuint VBO;  // memleak move
-    glGenBuffers(1, &VBO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER,
-                 8 * sizeof(float),
-                 vertices,
-                 GL_DYNAMIC_DRAW);
-
-    glEnable(GL_STENCIL_TEST);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
-
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glUseProgram(outline_shader_program_id);
-    glUniformMatrix4fv(
-        glGetUniformLocation(outline_shader_program_id, "ortho_projection"), 1, GL_FALSE, &ortho_projection[0][0]);
 
-    glDrawArrays(GL_LINE_LOOP, 0, 4);
+    glBindVertexArray(vao);
+
+    // update array buffer with new point data
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     glUseProgram(inside_shader_program_id);
     glUniformMatrix4fv(
         glGetUniformLocation(inside_shader_program_id, "ortho_projection"), 1, GL_FALSE, &ortho_projection[0][0]);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+    byte pad = 2;
+    float vertices_padded[4][2] = {
+        {start.x - pad , end.y + pad},
+        {start.x - pad , start.y - pad},
+        {end.x + pad , start.y - pad},
+        {end.x + pad , end.y + pad}
+    };
+
+    // update array buffer with new point data
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices_padded), vertices_padded);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glUseProgram(outline_shader_program_id);
+    glUniformMatrix4fv(
+        glGetUniformLocation(outline_shader_program_id, "ortho_projection"), 1, GL_FALSE, &ortho_projection[0][0]);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
     glBindVertexArray(0);
     glDisable(GL_BLEND);
 }
@@ -575,7 +584,11 @@ void focus_on_mesh(Mesh* mesh)
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    if (key == GLFW_KEY_UP)
+    if (key == GLFW_KEY_ESCAPE)
+    {
+        is_running = false;
+    }
+    else if (key == GLFW_KEY_UP)
     {
         /*Mesh cube_mesh = cube_create_random_on_sphere(xor_state);*/
         Mesh cube_mesh = cube_create_random_on_plane(xor_state);
@@ -714,6 +727,9 @@ int main()
     GLuint lambert_shader_program_id = create_shader(
         "shaders/default.vert", "shaders/lambert.frag");
 
+    GLuint background_shader_program_id = create_shader(
+        "shaders/background.vert", "shaders/background.frag");
+
 
     Array keys;
     array_init(keys, sizeof(char*) * 64, 128);
@@ -829,11 +845,32 @@ int main()
     glGenVertexArrays(1, &text_VAO);
     glGenBuffers(1, &text_VBO);
 
-    int* koko = (int*)malloc(1024);
+    GLuint background_VAO = background_init_vao();
+
+    // marquee init VAO
+    GLuint marquee_VAO;
+    glGenVertexArrays(1, &marquee_VAO);
+    glBindVertexArray(marquee_VAO);
+
+    GLuint marquee_VBO;
+    glGenBuffers(1, &marquee_VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, marquee_VBO);
+    glBufferData(GL_ARRAY_BUFFER,
+                 8 * sizeof(float),
+                 marquee.vertices,
+                 GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+    glBindVertexArray(0);
+
 
     bool lock_framerate = false;
-
-    while (!glfwWindowShouldClose(window)) {
+    while (is_running) {
+        if (glfwWindowShouldClose(window))
+        {
+             is_running = false;
+             break;
+        }
         glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
@@ -851,6 +888,14 @@ int main()
                 time_in_ms = delta_time * 1000.0f;
             }
         }
+
+        // background
+        glUseProgram(background_shader_program_id);
+        glBindVertexArray(background_VAO);
+        glDisable(GL_DEPTH_TEST);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+        glEnable(GL_DEPTH_TEST);
+        // background
 
         last_frame = current_frame;
 
@@ -952,7 +997,7 @@ int main()
                 glEnable(GL_DEPTH_TEST);
 
             }
-            // World grid
+
             if(active_selection)
             {
                 glDisable(GL_DEPTH_TEST);
@@ -961,6 +1006,8 @@ int main()
                 glEnable(GL_DEPTH_TEST);
                 glEnable(GL_CULL_FACE);
             }
+
+            // World grid
             drawMesh(grid_mesh, GL_LINES, default_shader_program_id, vp);
         }
 
@@ -999,18 +1046,19 @@ int main()
             marquee.top.x = p2.x;
             marquee.top.y = p2.y;
 
-            draw_marquee(ortho_projection, marquee_outline_shader_program_id, marquee_inside_shader_program_id);
+            draw_marquee(marquee_VAO, marquee_VBO, ortho_projection, marquee_outline_shader_program_id, marquee_inside_shader_program_id);
         }
 
         glfwSwapBuffers(window);
 
-        // NOTE(kk): render selection back buffer before polling events
         render_selection_buffer(window, vp);
+        // NOTE(kk): render selection back buffer before polling events
         glfwPollEvents();
     }
 
 
     array_free(mesh_data_array);
+    array_free(selected_mesh_indices);
 
     glfwTerminate();
     return 0;
