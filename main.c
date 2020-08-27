@@ -6,6 +6,7 @@
 // - dict struct
 // - lights
 // - transform stack?
+// - bboxes
 // - UI widgets
 // - gradient background
 #include <cmath>
@@ -19,8 +20,10 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 #include <glm/gtx/transform.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 
 #include "types.h"
 #include "debug.h"
@@ -31,10 +34,11 @@
 #include "text.h"
 #include "background.c"
 
+#include "io/objloader.h"
+
 #include "assets/grid.h"
 #include "assets/cube.h"
 #include "assets/manipulator.h"
-#include "io/objloader.h"
 
 static Camera global_cam;
 static double delta_time; 
@@ -75,6 +79,9 @@ GLuint hover_shader_program_id;
 GLuint picker_shader_program_id;
 GLuint selection_shader_program_id;
 
+enum selection_mode {OBJECT, MANIPULATORS};
+static selection_mode current_selection_mode = OBJECT;
+
 
 typedef struct v2i
 {
@@ -94,7 +101,6 @@ typedef struct Marquee
 {
     v2f bottom;
     v2f top;
-    float vertices[4][2];
 } Marquee;
 
 Marquee marquee;
@@ -358,41 +364,44 @@ void decompose_u32(u32 number, byte* array)
 
 void render_selection_buffer(GLFWwindow* window, glm::mat4 vp)
 {
-    // Instance mesh
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    u32 element_count = mesh_data_array.element_count;
-    for (u32 i=0; i < element_count; ++i)
+    if(current_selection_mode == OBJECT)
     {
-        Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
+        u32 element_count = mesh_data_array.element_count;
+        for (u32 i=0; i < element_count; ++i)
+        {
+            Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
 
-        byte bytes[4];
-        decompose_u32(i, bytes);
-        // Create an ID from mesh index
-        glm::vec4 picker_color = glm::vec4(
-            255 - bytes[0], 255 - bytes[1], 255 - bytes[2], 255 - bytes[3]);
+            byte bytes[4];
+            decompose_u32(i, bytes);
+            // Create an ID from mesh index
+            glm::vec4 picker_color = glm::vec4(
+                255 - bytes[0], 255 - bytes[1], 255 - bytes[2], 255 - bytes[3]);
 
-        // Draw
-        glUseProgram(picker_shader_program_id);
-        glm::mat4 mvp = vp * mesh->model_matrix;
-        GLuint matrix_id = glGetUniformLocation(
-            picker_shader_program_id, "MVP");
+            // Draw
+            glUseProgram(picker_shader_program_id);
+            glm::mat4 mvp = vp * mesh->model_matrix;
+            GLuint matrix_id = glGetUniformLocation(
+                picker_shader_program_id, "MVP");
 
-        glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
+            glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
 
-        GLuint picker_id = glGetUniformLocation(
-            picker_shader_program_id, "picker_id");
+            GLuint picker_id = glGetUniformLocation(
+                picker_shader_program_id, "picker_id");
 
-        GLfloat uniform[4] = {
-            (GLfloat)picker_color[0] / 255.0f,
-            (GLfloat)picker_color[1] / 255.0f,
-            (GLfloat)picker_color[2] / 255.0f,
-            (GLfloat)picker_color[3] / 255.0f,
-        };
-        glUniform4fv(picker_id, 1, &uniform[0]);
-        glBindVertexArray(mesh->vao);
-        glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
+            GLfloat uniform[4] = {
+                (GLfloat)picker_color[0] / 255.0f,
+                (GLfloat)picker_color[1] / 255.0f,
+                (GLfloat)picker_color[2] / 255.0f,
+                (GLfloat)picker_color[3] / 255.0f,
+            };
+            glUniform4fv(picker_id, 1, &uniform[0]);
+            glBindVertexArray(mesh->vao);
+            glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
+            glBindVertexArray(0);
+        }
     }
 }
 
@@ -834,6 +843,7 @@ int main()
     mesh_initialize_VAO(grid_mesh, 3);
 
     Mesh manip_mesh = manipulator_create_mesh();
+    manip_mesh.shader_id = lambert_shader_program_id;
     mesh_initialize_VAO(manip_mesh, 3);
 
     glEnable(GL_DEPTH_TEST);
@@ -857,7 +867,7 @@ int main()
     glBindBuffer(GL_ARRAY_BUFFER, marquee_VBO);
     glBufferData(GL_ARRAY_BUFFER,
                  8 * sizeof(float),
-                 marquee.vertices,
+                 NULL,  // will be replaced by sub data
                  GL_DYNAMIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
@@ -969,7 +979,17 @@ int main()
                     if (is_selected)
                     {
                         shader_id = outline_shader_program_id;
-                        manip_mesh.model_matrix = mesh->model_matrix;
+                        glm::vec3 scale;
+                        glm::quat rotation;
+                        glm::vec3 translation;
+                        glm::vec3 skew;
+                        glm::vec4 perspective;
+                        glm::decompose(mesh->model_matrix, scale, rotation, translation, skew, perspective);
+                        glm::mat4 rotation_matrix = glm::mat4_cast(rotation);
+                        glm::vec3 offset_x = translation;
+                        /*glm::mat4 rotation_with_pivot = glm::translate(glm::mat4(1), offset_x) * rotation_matrix * glm::translate(glm::mat4(1), -offset_x);*/
+                        manip_mesh.model_matrix = glm::translate(glm::mat4(1), offset_x);
+                        manip_mesh.model_matrix = manip_mesh.model_matrix * rotation_matrix;
                         active_selection = 1;
                     }
                     if (mesh == mouse_over_mesh)
@@ -1002,6 +1022,8 @@ int main()
             {
                 glDisable(GL_DEPTH_TEST);
                 glDisable(GL_CULL_FACE);
+                glm::mat4 manip_view = view_matrix;
+                vp = Projection * manip_view;
                 drawMesh(manip_mesh, GL_TRIANGLES, default_shader_program_id, vp);
                 glEnable(GL_DEPTH_TEST);
                 glEnable(GL_CULL_FACE);
