@@ -956,7 +956,6 @@ int main()
 
                 GLuint object_shader = mesh->shader_id;
                 drawMesh(*mesh, GL_TRIANGLES, object_shader, vp);
-                mesh_draw_bbox(*mesh, default_shader_program_id, vp);
             }
 
             bool active_selection = 0;
@@ -1029,6 +1028,7 @@ int main()
                 {
                     u32* selected_idx = (u32*)array_get_index(selected_mesh_indices, i);
                     Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, *selected_idx);
+                    mesh_draw_bbox(*mesh, default_shader_program_id, vp);
                 }
 
                 // Manipulator
