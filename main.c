@@ -30,7 +30,7 @@
 #include "camera.h"
 #include "array.h"
 #include "dict.h"
-#include "mesh.h"
+#include "mesh.c"
 #include "text.h"
 #include "background.c"
 
@@ -350,6 +350,8 @@ void drawMesh(Mesh &mesh, GLenum mode, GLuint shader_program_id, glm::mat4 vp)
 
     glBindVertexArray(mesh.vao);
     glDrawArrays(mode, 0, mesh.vertex_array_length / 3.0f);
+    glBindVertexArray(0);
+    glUseProgram(0);
 };
 
 
@@ -601,7 +603,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     {
         /*Mesh cube_mesh = cube_create_random_on_sphere(xor_state);*/
         Mesh cube_mesh = cube_create_random_on_plane(xor_state);
-        mesh_initialize_VAO(cube_mesh, 3);
+        mesh_init(cube_mesh, 3);
         cube_mesh.shader_id = default_shader_program_id;
         array_append(mesh_data_array, &cube_mesh);
         /*print("count %i", mesh_data_array.element_count);*/
@@ -840,11 +842,11 @@ int main()
 
     // World grid
     Mesh grid_mesh = grid_create_mesh();
-    mesh_initialize_VAO(grid_mesh, 3);
+    mesh_init(grid_mesh, 3);
 
     Mesh manip_mesh = manipulator_create_mesh();
     manip_mesh.shader_id = lambert_shader_program_id;
-    mesh_initialize_VAO(manip_mesh, 3);
+    mesh_init(manip_mesh, 3);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -901,10 +903,12 @@ int main()
 
         // background
         glUseProgram(background_shader_program_id);
-        glBindVertexArray(background_VAO);
         glDisable(GL_DEPTH_TEST);
-        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            glBindVertexArray(background_VAO);
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            glBindVertexArray(0);
         glEnable(GL_DEPTH_TEST);
+        glUseProgram(0);
         // background
 
         last_frame = current_frame;
@@ -919,6 +923,7 @@ int main()
 
         glm::mat4 view_matrix = get_view_matrix();
         glm::mat4 vp = Projection * view_matrix;
+
 
         u32 element_count = mesh_data_array.element_count;
 
@@ -951,8 +956,8 @@ int main()
 
                 GLuint object_shader = mesh->shader_id;
                 drawMesh(*mesh, GL_TRIANGLES, object_shader, vp);
+                mesh_draw_bbox(*mesh, default_shader_program_id, vp);
             }
-
 
             bool active_selection = 0;
             // STENCIL
@@ -1009,17 +1014,24 @@ int main()
 
                     glBindVertexArray(mesh->vao);
                     glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
-
+                    glBindVertexArray(0);
+                    glUseProgram(0);
                 }
                 glBindVertexArray(0);
                 glStencilMask(0xFF);
                 glStencilFunc(GL_ALWAYS, 0, 0xFF);
                 glEnable(GL_DEPTH_TEST);
-
             }
 
             if(active_selection)
             {
+                for (int i=0; i < selected_mesh_indices.element_count; ++i)
+                {
+                    u32* selected_idx = (u32*)array_get_index(selected_mesh_indices, i);
+                    Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, *selected_idx);
+                }
+
+                // Manipulator
                 glDisable(GL_DEPTH_TEST);
                 glDisable(GL_CULL_FACE);
                 glm::mat4 manip_view = view_matrix;
@@ -1030,7 +1042,9 @@ int main()
             }
 
             // World grid
+            Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, 1);
             drawMesh(grid_mesh, GL_LINES, default_shader_program_id, vp);
+
         }
 
         // Text
