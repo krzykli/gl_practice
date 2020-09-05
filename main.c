@@ -809,16 +809,16 @@ int main()
     Mesh suzanne_mesh = objloader_create_mesh("assets/suzanne.obj");
     suzanne_mesh.model_matrix = glm::translate(suzanne_mesh.model_matrix,
                                                glm::vec3(0,5,0));
-    suzanne_mesh.model_matrix = glm::scale(suzanne_mesh.model_matrix,
-                                           glm::vec3(2,2,2));
+    /*suzanne_mesh.model_matrix = glm::scale(suzanne_mesh.model_matrix,*/
+                                           /*glm::vec3(2,2,2));*/
     suzanne_mesh.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &suzanne_mesh);
 
     Mesh suzanne_mesh2 = objloader_create_mesh("assets/suzanne.obj");
     suzanne_mesh2.model_matrix = glm::translate(suzanne_mesh2.model_matrix,
                                                glm::vec3(5,5,0));
-    suzanne_mesh2.model_matrix = glm::scale(suzanne_mesh2.model_matrix,
-                                           glm::vec3(2,2,2));
+    /*suzanne_mesh2.model_matrix = glm::scale(suzanne_mesh2.model_matrix,*/
+                                           /*glm::vec3(2,2,2));*/
     suzanne_mesh2.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &suzanne_mesh2);
 
@@ -826,14 +826,14 @@ int main()
     Mesh suzanne_mesh3 = objloader_create_mesh("assets/suzanne.obj");
     suzanne_mesh3.model_matrix = glm::translate(suzanne_mesh3.model_matrix,
                                                glm::vec3(-5,5,0));
-    suzanne_mesh3.model_matrix = glm::scale(suzanne_mesh3.model_matrix,
-                                           glm::vec3(2,2,2));
+    /*suzanne_mesh3.model_matrix = glm::scale(suzanne_mesh3.model_matrix,*/
+                                           /*glm::vec3(2,2,2));*/
     suzanne_mesh3.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &suzanne_mesh3);
 
     Mesh teapot_mesh = objloader_create_mesh("assets/teapot2.obj");
-    teapot_mesh.model_matrix = glm::scale(teapot_mesh.model_matrix,
-                                          glm::vec3(0.5,0.5,0.5));
+    /*teapot_mesh.model_matrix = glm::scale(teapot_mesh.model_matrix,*/
+                                          /*glm::vec3(0.5,0.5,0.5));*/
     teapot_mesh.model_matrix = glm::translate(teapot_mesh.model_matrix,
                                               glm::vec3(0,-10,0));
     teapot_mesh.model_matrix = glm::rotate(teapot_mesh.model_matrix, 45.0f, glm::vec3(1,1,0));
@@ -1010,6 +1010,15 @@ int main()
                     GLuint uniform_camera_pos = glGetUniformLocation(shader_id, "camera_position");
                     if(uniform_camera_pos)
                         glUniform3fv(uniform_camera_pos, 1, &global_cam.position[0]);
+
+                    /*GLuint uniform_volume = glGetUniformLocation(shader_id, "volume");*/
+                    /*if(uniform_volume)*/
+                    /*{*/
+                        /*float width = mesh->bbox[3] - mesh->bbox[0];*/
+                        /*float height = mesh->bbox[4] - mesh->bbox[1];*/
+                        /*float depth = mesh->bbox[5] - mesh->bbox[2];*/
+                        /*glUniform1f(uniform_volume, width * height * depth);*/
+                    /*}*/
 
                     glBindVertexArray(mesh->vao);
                     glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
