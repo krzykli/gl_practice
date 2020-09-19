@@ -13,6 +13,7 @@ void main(){
     // Output position of the vertex, in clip space : MVP * position
     fragmentColor = vertexColor;
     normal = vertexNormal;
-    vec3 newPos = vertexPosition_modelspace + normalize(vertexNormal) * max(length(vertexPosition_modelspace) * 0.05, 0.2);
+    vec3 cam_distance = abs(camera_position - vertexPosition_modelspace);
+    vec3 newPos = vertexPosition_modelspace + normalize(vertexNormal) * cam_distance / 100.0f;
     gl_Position =  MVP * vec4(newPos, 1);
 }

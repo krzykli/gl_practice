@@ -140,7 +140,7 @@ Mesh objloader_create_mesh(const char* file_path)
     mesh.vertex_colors = NULL;
     mesh.model_matrix  = glm::mat4(1.0);
 
-    mesh_initialize_VAO(mesh, 3);
+    mesh_init(mesh, 3);
     return mesh;
 }
 

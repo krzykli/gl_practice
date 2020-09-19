@@ -30,7 +30,7 @@
 #include "camera.h"
 #include "array.h"
 #include "dict.h"
-#include "mesh.h"
+#include "mesh.c"
 #include "text.h"
 #include "background.c"
 
@@ -79,9 +79,12 @@ GLuint hover_shader_program_id;
 GLuint picker_shader_program_id;
 GLuint selection_shader_program_id;
 
-enum selection_mode {OBJECT, MANIPULATORS};
-static selection_mode current_selection_mode = OBJECT;
+enum tool {NONE, TRANSLATE};
+const char* ToolNames[] = {"NONE", "TRANSLATE"};
+static tool current_tool = NONE;
 
+enum selection_mode {OBJECT, FACE, VERTEX};
+static selection_mode current_selection_mode = OBJECT;
 
 typedef struct v2i
 {
@@ -350,6 +353,8 @@ void drawMesh(Mesh &mesh, GLenum mode, GLuint shader_program_id, glm::mat4 vp)
 
     glBindVertexArray(mesh.vao);
     glDrawArrays(mode, 0, mesh.vertex_array_length / 3.0f);
+    glBindVertexArray(0);
+    glUseProgram(0);
 };
 
 
@@ -367,41 +372,47 @@ void render_selection_buffer(GLFWwindow* window, glm::mat4 vp)
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if(current_selection_mode == OBJECT)
+    if(current_tool == NONE)
     {
-        u32 element_count = mesh_data_array.element_count;
-        for (u32 i=0; i < element_count; ++i)
+        if(current_selection_mode == OBJECT)
         {
-            Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
+            u32 element_count = mesh_data_array.element_count;
+            for (u32 i=0; i < element_count; ++i)
+            {
+                Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
 
-            byte bytes[4];
-            decompose_u32(i, bytes);
-            // Create an ID from mesh index
-            glm::vec4 picker_color = glm::vec4(
-                255 - bytes[0], 255 - bytes[1], 255 - bytes[2], 255 - bytes[3]);
+                byte bytes[4];
+                decompose_u32(i, bytes);
+                // Create an ID from mesh index
+                glm::vec4 picker_color = glm::vec4(
+                    255 - bytes[0], 255 - bytes[1], 255 - bytes[2], 255 - bytes[3]);
 
-            // Draw
-            glUseProgram(picker_shader_program_id);
-            glm::mat4 mvp = vp * mesh->model_matrix;
-            GLuint matrix_id = glGetUniformLocation(
-                picker_shader_program_id, "MVP");
+                // Draw
+                glUseProgram(picker_shader_program_id);
+                glm::mat4 mvp = vp * mesh->model_matrix;
+                GLuint matrix_id = glGetUniformLocation(
+                    picker_shader_program_id, "MVP");
 
-            glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
+                glUniformMatrix4fv(matrix_id, 1, GL_FALSE, &mvp[0][0]);
 
-            GLuint picker_id = glGetUniformLocation(
-                picker_shader_program_id, "picker_id");
+                GLuint picker_id = glGetUniformLocation(
+                    picker_shader_program_id, "picker_id");
 
-            GLfloat uniform[4] = {
-                (GLfloat)picker_color[0] / 255.0f,
-                (GLfloat)picker_color[1] / 255.0f,
-                (GLfloat)picker_color[2] / 255.0f,
-                (GLfloat)picker_color[3] / 255.0f,
-            };
-            glUniform4fv(picker_id, 1, &uniform[0]);
-            glBindVertexArray(mesh->vao);
-            glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
-            glBindVertexArray(0);
+                GLfloat uniform[4] = {
+                    (GLfloat)picker_color[0] / 255.0f,
+                    (GLfloat)picker_color[1] / 255.0f,
+                    (GLfloat)picker_color[2] / 255.0f,
+                    (GLfloat)picker_color[3] / 255.0f,
+                };
+                glUniform4fv(picker_id, 1, &uniform[0]);
+                glBindVertexArray(mesh->vao);
+                glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
+                glBindVertexArray(0);
+            }
         }
+    }
+    else if(current_tool == TRANSLATE)
+    {
     }
 }
 
@@ -597,11 +608,19 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     {
         is_running = false;
     }
+    else if (key == GLFW_KEY_Q)
+    {
+        current_tool = NONE;
+    }
+    else if (key == GLFW_KEY_W)
+    {
+        current_tool = TRANSLATE;
+    }
     else if (key == GLFW_KEY_UP)
     {
         /*Mesh cube_mesh = cube_create_random_on_sphere(xor_state);*/
         Mesh cube_mesh = cube_create_random_on_plane(xor_state);
-        mesh_initialize_VAO(cube_mesh, 3);
+        mesh_init(cube_mesh, 3);
         cube_mesh.shader_id = default_shader_program_id;
         array_append(mesh_data_array, &cube_mesh);
         /*print("count %i", mesh_data_array.element_count);*/
@@ -627,11 +646,11 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         }
         updateCameraCoordinateFrame(global_cam);
     }
-    else if (key == GLFW_KEY_E and action == GLFW_PRESS)
+    else if (key == GLFW_KEY_A and action == GLFW_PRESS)
     {
         render_selction_buffer = true;
     }
-    else if (key == GLFW_KEY_E and action == GLFW_RELEASE)
+    else if (key == GLFW_KEY_A and action == GLFW_RELEASE)
     {
         render_selction_buffer = false;
     }
@@ -807,16 +826,16 @@ int main()
     Mesh suzanne_mesh = objloader_create_mesh("assets/suzanne.obj");
     suzanne_mesh.model_matrix = glm::translate(suzanne_mesh.model_matrix,
                                                glm::vec3(0,5,0));
-    suzanne_mesh.model_matrix = glm::scale(suzanne_mesh.model_matrix,
-                                           glm::vec3(2,2,2));
+    /*suzanne_mesh.model_matrix = glm::scale(suzanne_mesh.model_matrix,*/
+                                           /*glm::vec3(2,2,2));*/
     suzanne_mesh.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &suzanne_mesh);
 
     Mesh suzanne_mesh2 = objloader_create_mesh("assets/suzanne.obj");
     suzanne_mesh2.model_matrix = glm::translate(suzanne_mesh2.model_matrix,
                                                glm::vec3(5,5,0));
-    suzanne_mesh2.model_matrix = glm::scale(suzanne_mesh2.model_matrix,
-                                           glm::vec3(2,2,2));
+    /*suzanne_mesh2.model_matrix = glm::scale(suzanne_mesh2.model_matrix,*/
+                                           /*glm::vec3(2,2,2));*/
     suzanne_mesh2.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &suzanne_mesh2);
 
@@ -824,14 +843,14 @@ int main()
     Mesh suzanne_mesh3 = objloader_create_mesh("assets/suzanne.obj");
     suzanne_mesh3.model_matrix = glm::translate(suzanne_mesh3.model_matrix,
                                                glm::vec3(-5,5,0));
-    suzanne_mesh3.model_matrix = glm::scale(suzanne_mesh3.model_matrix,
-                                           glm::vec3(2,2,2));
+    /*suzanne_mesh3.model_matrix = glm::scale(suzanne_mesh3.model_matrix,*/
+                                           /*glm::vec3(2,2,2));*/
     suzanne_mesh3.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &suzanne_mesh3);
 
     Mesh teapot_mesh = objloader_create_mesh("assets/teapot2.obj");
-    teapot_mesh.model_matrix = glm::scale(teapot_mesh.model_matrix,
-                                          glm::vec3(0.5,0.5,0.5));
+    /*teapot_mesh.model_matrix = glm::scale(teapot_mesh.model_matrix,*/
+                                          /*glm::vec3(0.5,0.5,0.5));*/
     teapot_mesh.model_matrix = glm::translate(teapot_mesh.model_matrix,
                                               glm::vec3(0,-10,0));
     teapot_mesh.model_matrix = glm::rotate(teapot_mesh.model_matrix, 45.0f, glm::vec3(1,1,0));
@@ -840,11 +859,11 @@ int main()
 
     // World grid
     Mesh grid_mesh = grid_create_mesh();
-    mesh_initialize_VAO(grid_mesh, 3);
+    mesh_init(grid_mesh, 3);
 
     Mesh manip_mesh = manipulator_create_mesh();
     manip_mesh.shader_id = lambert_shader_program_id;
-    mesh_initialize_VAO(manip_mesh, 3);
+    mesh_init(manip_mesh, 3);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -901,10 +920,12 @@ int main()
 
         // background
         glUseProgram(background_shader_program_id);
-        glBindVertexArray(background_VAO);
         glDisable(GL_DEPTH_TEST);
-        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            glBindVertexArray(background_VAO);
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            glBindVertexArray(0);
         glEnable(GL_DEPTH_TEST);
+        glUseProgram(0);
         // background
 
         last_frame = current_frame;
@@ -919,6 +940,7 @@ int main()
 
         glm::mat4 view_matrix = get_view_matrix();
         glm::mat4 vp = Projection * view_matrix;
+
 
         u32 element_count = mesh_data_array.element_count;
 
@@ -952,7 +974,6 @@ int main()
                 GLuint object_shader = mesh->shader_id;
                 drawMesh(*mesh, GL_TRIANGLES, object_shader, vp);
             }
-
 
             bool active_selection = 0;
             // STENCIL
@@ -1007,30 +1028,52 @@ int main()
                     if(uniform_camera_pos)
                         glUniform3fv(uniform_camera_pos, 1, &global_cam.position[0]);
 
+                    /*GLuint uniform_volume = glGetUniformLocation(shader_id, "volume");*/
+                    /*if(uniform_volume)*/
+                    /*{*/
+                        /*float width = mesh->bbox[3] - mesh->bbox[0];*/
+                        /*float height = mesh->bbox[4] - mesh->bbox[1];*/
+                        /*float depth = mesh->bbox[5] - mesh->bbox[2];*/
+                        /*glUniform1f(uniform_volume, width * height * depth);*/
+                    /*}*/
+
                     glBindVertexArray(mesh->vao);
                     glDrawArrays(GL_TRIANGLES, 0, mesh->vertex_array_length / 3.0f);
-
+                    glBindVertexArray(0);
+                    glUseProgram(0);
                 }
                 glBindVertexArray(0);
                 glStencilMask(0xFF);
                 glStencilFunc(GL_ALWAYS, 0, 0xFF);
                 glEnable(GL_DEPTH_TEST);
-
             }
 
             if(active_selection)
             {
-                glDisable(GL_DEPTH_TEST);
-                glDisable(GL_CULL_FACE);
-                glm::mat4 manip_view = view_matrix;
-                vp = Projection * manip_view;
-                drawMesh(manip_mesh, GL_TRIANGLES, default_shader_program_id, vp);
-                glEnable(GL_DEPTH_TEST);
-                glEnable(GL_CULL_FACE);
+                for (int i=0; i < selected_mesh_indices.element_count; ++i)
+                {
+                    u32* selected_idx = (u32*)array_get_index(selected_mesh_indices, i);
+                    Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, *selected_idx);
+                    mesh_draw_bbox(*mesh, default_shader_program_id, vp);
+                }
+
+                // Manipulator
+                if(current_tool == TRANSLATE)
+                {
+                    glDisable(GL_DEPTH_TEST);
+                    glDisable(GL_CULL_FACE);
+                    glm::mat4 manip_view = view_matrix;
+                    vp = Projection * manip_view;
+                    drawMesh(manip_mesh, GL_TRIANGLES, default_shader_program_id, vp);
+                    glEnable(GL_DEPTH_TEST);
+                    glEnable(GL_CULL_FACE);
+                }
             }
 
             // World grid
+            Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, 1);
             drawMesh(grid_mesh, GL_LINES, default_shader_program_id, vp);
+
         }
 
         // Text
@@ -1046,9 +1089,11 @@ int main()
 
         text_draw(text, color, pos, scale, helvetica_characters, ortho_projection, font_shader_program_id);
 
-        scale = 0.5f;
-        pos = glm::vec2(window_width/2 - helvetica_characters[0].size.x * strlen(text), 10);
-        text_draw("OpenGL test", color, pos, scale, helvetica_characters, ortho_projection, font_shader_program_id);
+        scale = 0.3f;
+        char text_tool[32];
+        pos = glm::vec2(10, window_height - 15);
+        sprintf(text_tool, "Tool: %s", ToolNames[current_tool]);
+        text_draw(text_tool, color, pos, scale, helvetica_characters, ortho_projection, font_shader_program_id);
 
         if(draw_viewport_marquee)
         {
