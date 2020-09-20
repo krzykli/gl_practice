@@ -27,6 +27,7 @@
 
 #include "types.h"
 #include "debug.h"
+#include "ray.c"
 #include "camera.h"
 #include "array.h"
 #include "dict.h"
@@ -68,6 +69,8 @@ static bool draw_viewport_marquee = false;
 
 static Array selected_mesh_indices;
 static Mesh* mouse_over_mesh = NULL;
+
+static Array rays;
 
 static bool is_running = true;
 
@@ -455,12 +458,36 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
         press_start_x = xpos;
         press_start_y = ypos;
 
+
         if (!mods || mods & GLFW_MOD_SHIFT)
         {
-            print("Press");
+            camera_update(global_cam);
+            print("Press %f, %f", xpos, ypos);
             v2i pixel_coords = get_mouse_pixel_coords(window);
-            glReadBuffer(GL_BACK);
 
+            int buffer_width, buffer_height;
+            glfwGetFramebufferSize(window, &buffer_width, &buffer_height);
+            float u, v;
+            u = pixel_coords.x / (float)buffer_width;
+            v = pixel_coords.y / (float)buffer_height;
+
+            Ray r = camera_shoot_ray(global_cam, u, v);
+            array_append(rays, &r);
+
+            for (int i=0; i < mesh_data_array.element_count; ++i)
+            {
+                Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
+                for (u32 c=0; c<mesh->vertex_array_length; c += 9)
+                {
+                     Triangle tri;
+                     tri.A = glm::vec3(mesh->vertex_positions[c], mesh->vertex_positions[c+1], mesh->vertex_positions[c+2]);
+                     tri.B = glm::vec3(mesh->vertex_positions[c+3], mesh->vertex_positions[c+4], mesh->vertex_positions[c+5]);
+                     tri.C = glm::vec3(mesh->vertex_positions[c+6], mesh->vertex_positions[c+7], mesh->vertex_positions[c+8]);
+                }
+
+            }
+
+            glReadBuffer(GL_BACK);
             byte pixel_color[4];
             glReadPixels(pixel_coords.x, pixel_coords.y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &pixel_color);
 
@@ -644,7 +671,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         {
             global_cam.target = glm::vec3(0.0f, 0.0f, 0.0f);
         }
-        updateCameraCoordinateFrame(global_cam);
+        camera_update(global_cam);
     }
     else if (key == GLFW_KEY_A and action == GLFW_PRESS)
     {
@@ -805,10 +832,13 @@ int main()
 
 
     // WORLD
-    glm::vec3 pos = glm::vec3(10, 8, 10);
-    global_cam.position = pos;
-    global_cam.target = glm::vec3(0, 0, 0);
-    updateCameraCoordinateFrame(global_cam);
+    glm::vec3 cam_start_pos = glm::vec3(10, 8, 10);
+    glm::vec3 cam_start_target = glm::vec3(0, 0, 0);
+    global_cam.position = cam_start_pos;
+    global_cam.target = cam_start_target;
+    global_cam.aspect_ratio = (float)window_width / (float)window_height;
+    global_cam.fov = 45.0f;
+    camera_update(global_cam);
 
     u32 max_meshes = 10;
     mesh_data_array.element_size = sizeof(Mesh);
@@ -817,6 +847,9 @@ int main()
 
     u32 max_init_selection= 100;
     array_init(selected_mesh_indices, sizeof(u32), max_init_selection);
+
+    u32 max_rays= 100;
+    array_init(rays, sizeof(Ray), max_rays);
 
     xor_state.a = 10;
 
@@ -933,8 +966,8 @@ int main()
         glfwGetWindowSize(window, &window_width, &window_height);
 
         glm::mat4 Projection = glm::perspective(
-            glm::radians(45.0f),
-            (float)window_width / (float)window_height,
+            glm::radians(global_cam.fov),
+            global_cam.aspect_ratio,
             0.1f, 10000.0f
         );
 
@@ -1114,6 +1147,53 @@ int main()
             marquee.top.y = p2.y;
 
             draw_marquee(marquee_VAO, marquee_VBO, ortho_projection, marquee_outline_shader_program_id, marquee_inside_shader_program_id);
+        }
+
+        for (u32 i=0; i < rays.element_count; ++i)
+        {
+            Ray* ray = (Ray*)array_get_index(rays, i);
+
+            unsigned int rayVAO, rayVBO, rayColorBuffer;
+            glGenVertexArrays(1, &rayVAO);
+            glGenBuffers(1, &rayVBO);
+            glGenBuffers(1, &rayColorBuffer);
+
+            float ray_vertices[2][3];
+            ray_vertices[0][0] = ray->origin.x;
+            ray_vertices[0][1] = ray->origin.y;
+            ray_vertices[0][2] = ray->origin.z;
+
+            glm::vec3 end = ray_point_at_distance(*ray, 50.0f);
+
+            ray_vertices[1][0] = end.x;
+            ray_vertices[1][1] = end.y;
+            ray_vertices[1][2] = end.z;
+
+            float ray_colors[6] = {1,0,0,1,0,0};
+
+            glBindVertexArray(rayVAO);
+            glBindBuffer(GL_ARRAY_BUFFER, rayVBO);
+            glBufferData(GL_ARRAY_BUFFER,
+                         6 * sizeof(float),
+                         ray_vertices,
+                         GL_STATIC_DRAW);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+
+            glBindBuffer(GL_ARRAY_BUFFER, rayColorBuffer);
+            glBufferData(GL_ARRAY_BUFFER,
+                         6 * sizeof(float),
+                         ray_colors,
+                         GL_STATIC_DRAW);
+            glEnableVertexAttribArray(1);
+            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+            glUseProgram(default_shader_program_id);
+            glDrawArrays(GL_LINES, 0, 4);
+            glUseProgram(0);
+            glBindVertexArray(0);
         }
 
         glfwSwapBuffers(window);
