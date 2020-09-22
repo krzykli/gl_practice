@@ -15,12 +15,12 @@ struct Ray
 };
 
 
-struct hit_record
+struct HitRecord
 {
     float t;
     glm::vec3 p;
     glm::vec3 normal;
-    Material *matrial;
+    /*Material *matrial;*/
 };
 
 struct Triangle
@@ -36,8 +36,7 @@ glm::vec3 ray_point_at_distance(Ray& ray, float t) {
 }
 
 
-
-bool ray_intersect_triangle(Ray &ray, Triangle& tri, float t_min, float t_max, hit_record &rec)
+bool ray_intersect_triangle(Ray &ray, Triangle& tri, float t_min, float t_max, HitRecord &rec)
 {
     float u, v, distance;
 

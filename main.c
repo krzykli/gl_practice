@@ -444,6 +444,63 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
     {
         mouse_over_mesh = NULL;
     }
+
+    camera_update(global_cam);
+    /*print("Press %f, %f", xpos, ypos);*/
+    v2i pixel_coords = get_mouse_pixel_coords(window);
+
+    int buffer_width, buffer_height;
+    glfwGetFramebufferSize(window, &buffer_width, &buffer_height);
+    float u, v;
+    u = pixel_coords.x / (float)buffer_width;
+    v = pixel_coords.y / (float)buffer_height;
+
+    Ray r = camera_shoot_ray(global_cam, u, v);
+    /*array_append(rays, &r);*/
+
+    HitRecord closest_hit;
+    float max_distance = 1000000.0f;
+    closest_hit.t = max_distance;
+    closest_hit.p = glm::vec3(0);
+    closest_hit.normal= glm::vec3(0);
+
+    for (int i=0; i < mesh_data_array.element_count; ++i)
+    {
+        Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
+        glm::mat4 inverse_model_matrix = glm::inverse(mesh->model_matrix);
+        for (u32 c=0; c<mesh->vertex_array_length; c += 9)
+        {
+             Triangle tri;
+             tri.A = glm::vec3(mesh->vertex_positions[c], mesh->vertex_positions[c+1], mesh->vertex_positions[c+2]);
+             tri.B = glm::vec3(mesh->vertex_positions[c+3], mesh->vertex_positions[c+4], mesh->vertex_positions[c+5]);
+             tri.C = glm::vec3(mesh->vertex_positions[c+6], mesh->vertex_positions[c+7], mesh->vertex_positions[c+8]);
+
+             // Modify the ray to intersect transformed mesh data
+             Ray changed_ray;
+             changed_ray.origin= glm::vec3(inverse_model_matrix * glm::vec4(r.origin, 1));
+
+             // Homogenous coordinate must be set to 0 for vectors
+             /*https://online.ucsd.edu/courses/course-v1:CSE+168X+2020-SP/courseware/Unit_3/L10/1?activate_block_id=block-v1%3ACSE%2B168X%2B2020-SP%2Btype%40html%2Bblock%40video_l10v1*/
+             changed_ray.direction = glm::vec3(inverse_model_matrix * glm::vec4(r.direction, 0));
+
+             HitRecord hit_record;
+             hit_record.t = 0.0f;
+             hit_record.p = glm::vec3(0);
+             hit_record.normal= glm::vec3(0);
+             ray_intersect_triangle(changed_ray, tri, 0.0001f, 100000.0f, hit_record);
+
+             if (hit_record.t != 0.0f && hit_record.t < closest_hit.t)
+             {
+                 hit_record.p = glm::vec3(mesh->model_matrix * glm::vec4(hit_record.p, 1));
+                 closest_hit.t = hit_record.t;
+                 closest_hit.p = hit_record.p;
+             }
+        }
+    }
+    if(closest_hit.t != max_distance)
+    {
+        print("Hit distance %f, point %f %f %f", closest_hit.t, closest_hit.p.x, closest_hit.p.y, closest_hit.p.z);
+    }
 }
 
 
@@ -473,20 +530,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
             v = pixel_coords.y / (float)buffer_height;
 
             Ray r = camera_shoot_ray(global_cam, u, v);
-            array_append(rays, &r);
-
-            for (int i=0; i < mesh_data_array.element_count; ++i)
-            {
-                Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
-                for (u32 c=0; c<mesh->vertex_array_length; c += 9)
-                {
-                     Triangle tri;
-                     tri.A = glm::vec3(mesh->vertex_positions[c], mesh->vertex_positions[c+1], mesh->vertex_positions[c+2]);
-                     tri.B = glm::vec3(mesh->vertex_positions[c+3], mesh->vertex_positions[c+4], mesh->vertex_positions[c+5]);
-                     tri.C = glm::vec3(mesh->vertex_positions[c+6], mesh->vertex_positions[c+7], mesh->vertex_positions[c+8]);
-                }
-
-            }
+            /*array_append(rays, &r);*/
 
             glReadBuffer(GL_BACK);
             byte pixel_color[4];
