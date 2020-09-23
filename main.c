@@ -25,6 +25,7 @@
 #include <glm/gtx/rotate_vector.hpp>
 #include <glm/gtx/transform.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 
 #include "types.h"
 #include "debug.h"
@@ -44,6 +45,7 @@
 
 static Camera global_cam;
 static double delta_time; 
+static HitRecord closest_hit;
 
 static float cursor_delta_x = 0;
 static float cursor_delta_y = 0;
@@ -89,6 +91,7 @@ static tool current_tool = NONE;
 
 enum selection_mode {OBJECT, FACE, VERTEX};
 static selection_mode current_selection_mode = OBJECT;
+
 
 typedef struct v2i
 {
@@ -463,7 +466,6 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
     Ray r = camera_shoot_ray(global_cam, u, v);
     /*array_append(rays, &r);*/
 
-    HitRecord closest_hit;
     float max_distance = 1000000.0f;
     closest_hit.t = max_distance;
     closest_hit.p = glm::vec3(0);
@@ -504,14 +506,12 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
             if (hit_record.t != 0.0f && hit_record.t < closest_hit.t)
             {
                 hit_record.p = glm::vec3(mesh->model_matrix * glm::vec4(hit_record.p, 1));
+                hit_record.normal = glm::normalize(glm::vec3(glm::inverseTranspose(mesh->model_matrix) * glm::vec4(hit_record.normal, 1)));
                 closest_hit.t = hit_record.t;
                 closest_hit.p = hit_record.p;
+                closest_hit.normal = hit_record.normal;
             }
         }
-    }
-    if(closest_hit.t != max_distance)
-    {
-        /*print("Hit distance %f, point %f %f %f", closest_hit.t, closest_hit.p.x, closest_hit.p.y, closest_hit.p.z);*/
     }
 }
 
@@ -1206,33 +1206,38 @@ int main()
             draw_marquee(marquee_VAO, marquee_VBO, ortho_projection, marquee_outline_shader_program_id, marquee_inside_shader_program_id);
         }
 
-        for (u32 i=0; i < rays.element_count; ++i)
+
+        if(closest_hit.t < 1000.0f)
         {
-            Ray* ray = (Ray*)array_get_index(rays, i);
+            print("Hit distance %f, point %f %f %f", closest_hit.t, closest_hit.p.x, closest_hit.p.y, closest_hit.p.z);
 
             unsigned int rayVAO, rayVBO, rayColorBuffer;
             glGenVertexArrays(1, &rayVAO);
             glGenBuffers(1, &rayVBO);
             glGenBuffers(1, &rayColorBuffer);
+            glm::vec3 point = closest_hit.p;
+            glm::vec3 normal = closest_hit.normal;
 
-            float ray_vertices[2][3];
-            ray_vertices[0][0] = ray->origin.x;
-            ray_vertices[0][1] = ray->origin.y;
-            ray_vertices[0][2] = ray->origin.z;
+            float hit_vertices[2][3];
+            hit_vertices[0][0] = point.x;
+            hit_vertices[0][1] = point.y;
+            hit_vertices[0][2] = point.z;
 
-            glm::vec3 end = ray_point_at_distance(*ray, 50.0f);
+            glm::vec3 end = point + glm::vec3(-1)*normal;
+            print("point %f %f %f", point.x, point.y, point.z);
+            print("normal %f %f %f", normal.x, normal.y, normal.z);
 
-            ray_vertices[1][0] = end.x;
-            ray_vertices[1][1] = end.y;
-            ray_vertices[1][2] = end.z;
+            hit_vertices[1][0] = end.x;
+            hit_vertices[1][1] = end.y;
+            hit_vertices[1][2] = end.z;
 
-            float ray_colors[6] = {1,0,0,1,0,0};
+            float hit_colors[6] = {1,1,0,1,1,0};
 
             glBindVertexArray(rayVAO);
             glBindBuffer(GL_ARRAY_BUFFER, rayVBO);
             glBufferData(GL_ARRAY_BUFFER,
                          6 * sizeof(float),
-                         ray_vertices,
+                         hit_vertices,
                          GL_STATIC_DRAW);
             glEnableVertexAttribArray(0);
             glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
@@ -1240,7 +1245,7 @@ int main()
             glBindBuffer(GL_ARRAY_BUFFER, rayColorBuffer);
             glBufferData(GL_ARRAY_BUFFER,
                          6 * sizeof(float),
-                         ray_colors,
+                         hit_colors,
                          GL_STATIC_DRAW);
             glEnableVertexAttribArray(1);
             glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
@@ -1251,8 +1256,11 @@ int main()
             glDrawArrays(GL_LINES, 0, 4);
             glUseProgram(0);
             glBindVertexArray(0);
-        }
 
+            glDeleteBuffers(1, &rayVAO);
+            glDeleteBuffers(1, &rayVBO);
+            glDeleteBuffers(1, &rayColorBuffer);
+        }
         glfwSwapBuffers(window);
 
         render_selection_buffer(window, vp);
