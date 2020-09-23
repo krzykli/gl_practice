@@ -74,6 +74,53 @@ bool ray_intersect_triangle(Ray &ray, Triangle& tri, float t_min, float t_max, H
     return false;
 }
 
+void swapf(float &a, float &b)
+{
+     float temp = a;
+     a = b;
+     b = temp;
+}
+
+
+// https://www.scratchapixel.com/code.php?id=10&origin=/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes
+bool ray_intersect_box(const Ray &r, glm::vec3 vmin, glm::vec3 vmax)
+{
+    float tmin = (vmin.x - r.origin.x) / r.direction.x;
+    float tmax = (vmax.x - r.origin.x) / r.direction.x;
+
+    if (tmin > tmax) swapf(tmin, tmax);
+
+    float tymin = (vmin.y - r.origin.y) / r.direction.y;
+    float tymax = (vmax.y - r.origin.y) / r.direction.y;
+
+    if (tymin > tymax) swapf(tymin, tymax);
+
+    if ((tmin > tymax) || (tymin > tmax))
+        return false;
+
+    if (tymin > tmin)
+        tmin = tymin;
+
+    if (tymax < tmax)
+        tmax = tymax;
+
+    float tzmin = (vmin.z - r.origin.z) / r.direction.z;
+    float tzmax = (vmax.z - r.origin.z) / r.direction.z;
+
+    if (tzmin > tzmax) swapf(tzmin, tzmax);
+
+    if ((tmin > tzmax) || (tzmin > tmax))
+        return false;
+
+    if (tzmin > tmin)
+        tmin = tzmin;
+
+    if (tzmax < tmax)
+        tmax = tzmax;
+
+    return true;
+}
+
 
 glm::vec2 pixel_to_NDC(float x, float y, float window_width, float window_height)
 {

@@ -149,6 +149,11 @@ u8 compile_shader(GLuint shader_id, const char* shader_path)
     return 1;
 }
 
+/*typedef struct BVH*/
+/*{*/
+     
+/*};*/
+
 
 GLuint create_shader(const char* vertex_shader, const char* fragment_shader)
 {
@@ -468,38 +473,45 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
     {
         Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
         glm::mat4 inverse_model_matrix = glm::inverse(mesh->model_matrix);
+        glm::vec3 vmin = glm::vec3(mesh->bbox[0], mesh->bbox[1], mesh->bbox[2]);
+        glm::vec3 vmax = glm::vec3(mesh->bbox[3], mesh->bbox[4], mesh->bbox[5]);
+
+        // Modify the ray to intersect transformed mesh data
+        Ray changed_ray;
+        changed_ray.origin= glm::vec3(inverse_model_matrix * glm::vec4(r.origin, 1));
+
+        // Homogenous coordinate must be set to 0 for vectors
+        /*https://online.ucsd.edu/courses/course-v1:CSE+168X+2020-SP/courseware/Unit_3/L10/1?activate_block_id=block-v1%3ACSE%2B168X%2B2020-SP%2Btype%40html%2Bblock%40video_l10v1*/
+        changed_ray.direction = glm::vec3(inverse_model_matrix * glm::vec4(r.direction, 0));
+
+        bool box_hit = ray_intersect_box(changed_ray, vmin, vmax);
+        if(!box_hit)
+            continue;
+
         for (u32 c=0; c<mesh->vertex_array_length; c += 9)
         {
-             Triangle tri;
-             tri.A = glm::vec3(mesh->vertex_positions[c], mesh->vertex_positions[c+1], mesh->vertex_positions[c+2]);
-             tri.B = glm::vec3(mesh->vertex_positions[c+3], mesh->vertex_positions[c+4], mesh->vertex_positions[c+5]);
-             tri.C = glm::vec3(mesh->vertex_positions[c+6], mesh->vertex_positions[c+7], mesh->vertex_positions[c+8]);
+            Triangle tri;
+            tri.A = glm::vec3(mesh->vertex_positions[c], mesh->vertex_positions[c+1], mesh->vertex_positions[c+2]);
+            tri.B = glm::vec3(mesh->vertex_positions[c+3], mesh->vertex_positions[c+4], mesh->vertex_positions[c+5]);
+            tri.C = glm::vec3(mesh->vertex_positions[c+6], mesh->vertex_positions[c+7], mesh->vertex_positions[c+8]);
 
-             // Modify the ray to intersect transformed mesh data
-             Ray changed_ray;
-             changed_ray.origin= glm::vec3(inverse_model_matrix * glm::vec4(r.origin, 1));
+            HitRecord hit_record;
+            hit_record.t = 0.0f;
+            hit_record.p = glm::vec3(0);
+            hit_record.normal= glm::vec3(0);
+            ray_intersect_triangle(changed_ray, tri, 0.0001f, 100000.0f, hit_record);
 
-             // Homogenous coordinate must be set to 0 for vectors
-             /*https://online.ucsd.edu/courses/course-v1:CSE+168X+2020-SP/courseware/Unit_3/L10/1?activate_block_id=block-v1%3ACSE%2B168X%2B2020-SP%2Btype%40html%2Bblock%40video_l10v1*/
-             changed_ray.direction = glm::vec3(inverse_model_matrix * glm::vec4(r.direction, 0));
-
-             HitRecord hit_record;
-             hit_record.t = 0.0f;
-             hit_record.p = glm::vec3(0);
-             hit_record.normal= glm::vec3(0);
-             ray_intersect_triangle(changed_ray, tri, 0.0001f, 100000.0f, hit_record);
-
-             if (hit_record.t != 0.0f && hit_record.t < closest_hit.t)
-             {
-                 hit_record.p = glm::vec3(mesh->model_matrix * glm::vec4(hit_record.p, 1));
-                 closest_hit.t = hit_record.t;
-                 closest_hit.p = hit_record.p;
-             }
+            if (hit_record.t != 0.0f && hit_record.t < closest_hit.t)
+            {
+                hit_record.p = glm::vec3(mesh->model_matrix * glm::vec4(hit_record.p, 1));
+                closest_hit.t = hit_record.t;
+                closest_hit.p = hit_record.p;
+            }
         }
     }
     if(closest_hit.t != max_distance)
     {
-        print("Hit distance %f, point %f %f %f", closest_hit.t, closest_hit.p.x, closest_hit.p.y, closest_hit.p.z);
+        /*print("Hit distance %f, point %f %f %f", closest_hit.t, closest_hit.p.x, closest_hit.p.y, closest_hit.p.z);*/
     }
 }
 
