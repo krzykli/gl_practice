@@ -11,6 +11,8 @@
 // - gradient background
 //
 #include <cmath>
+#include <thread>
+#include <pthread.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,6 +68,8 @@ static glm::vec3 pan_vector_y;
 
 static Array mesh_data_array;
 static xorshift32_state xor_state;
+
+static float RAY_MAX_DISTANCE = 999999999.0f;
 
 static bool render_selction_buffer = false;
 static bool draw_viewport_marquee = false;
@@ -462,57 +466,6 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
     float u, v;
     u = pixel_coords.x / (float)buffer_width;
     v = pixel_coords.y / (float)buffer_height;
-
-    Ray r = camera_shoot_ray(global_cam, u, v);
-    /*array_append(rays, &r);*/
-
-    float max_distance = 1000000.0f;
-    closest_hit.t = max_distance;
-    closest_hit.p = glm::vec3(0);
-    closest_hit.normal= glm::vec3(0);
-
-    for (int i=0; i < mesh_data_array.element_count; ++i)
-    {
-        Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
-        glm::mat4 inverse_model_matrix = glm::inverse(mesh->model_matrix);
-        glm::vec3 vmin = glm::vec3(mesh->bbox[0], mesh->bbox[1], mesh->bbox[2]);
-        glm::vec3 vmax = glm::vec3(mesh->bbox[3], mesh->bbox[4], mesh->bbox[5]);
-
-        // Modify the ray to intersect transformed mesh data
-        Ray changed_ray;
-        changed_ray.origin= glm::vec3(inverse_model_matrix * glm::vec4(r.origin, 1));
-
-        // Homogenous coordinate must be set to 0 for vectors
-        /*https://online.ucsd.edu/courses/course-v1:CSE+168X+2020-SP/courseware/Unit_3/L10/1?activate_block_id=block-v1%3ACSE%2B168X%2B2020-SP%2Btype%40html%2Bblock%40video_l10v1*/
-        changed_ray.direction = glm::vec3(inverse_model_matrix * glm::vec4(r.direction, 0));
-
-        bool box_hit = ray_intersect_box(changed_ray, vmin, vmax);
-        if(!box_hit)
-            continue;
-
-        for (u32 c=0; c<mesh->vertex_array_length; c += 9)
-        {
-            Triangle tri;
-            tri.A = glm::vec3(mesh->vertex_positions[c], mesh->vertex_positions[c+1], mesh->vertex_positions[c+2]);
-            tri.B = glm::vec3(mesh->vertex_positions[c+3], mesh->vertex_positions[c+4], mesh->vertex_positions[c+5]);
-            tri.C = glm::vec3(mesh->vertex_positions[c+6], mesh->vertex_positions[c+7], mesh->vertex_positions[c+8]);
-
-            HitRecord hit_record;
-            hit_record.t = 0.0f;
-            hit_record.p = glm::vec3(0);
-            hit_record.normal= glm::vec3(0);
-            ray_intersect_triangle(changed_ray, tri, 0.0001f, 100000.0f, hit_record);
-
-            if (hit_record.t != 0.0f && hit_record.t < closest_hit.t)
-            {
-                hit_record.p = glm::vec3(mesh->model_matrix * glm::vec4(hit_record.p, 1));
-                hit_record.normal = glm::normalize(glm::vec3(glm::inverseTranspose(mesh->model_matrix) * glm::vec4(hit_record.normal, 1)));
-                closest_hit.t = hit_record.t;
-                closest_hit.p = hit_record.p;
-                closest_hit.normal = hit_record.normal;
-            }
-        }
-    }
 }
 
 
@@ -767,6 +720,118 @@ size_t array_defaul_resizer(void* array_pointer)
 }
 
 
+void prepare_meshes_for_render()
+{
+    for (int i=0; i < mesh_data_array.element_count; ++i)
+    {
+        Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
+        glm::mat4 inverse_model_matrix = glm::inverse(mesh->model_matrix);
+        glm::mat4 inverse_transpose_model_matrix = glm::inverseTranspose(mesh->model_matrix);
+        mesh->inverse_model_matrix = inverse_model_matrix;
+        mesh->inverse_transpose_model_matrix = inverse_transpose_model_matrix;
+    }
+}
+
+// TODO multithread buckets
+void trace_ray(float u, float v, HitRecord &cloest_hit)
+{
+    Ray r = camera_shoot_ray(global_cam, u, v);
+
+    closest_hit.t = RAY_MAX_DISTANCE;
+    closest_hit.p = glm::vec3(0);
+    closest_hit.normal= glm::vec3(0);
+
+
+    for (int i=0; i < mesh_data_array.element_count; ++i)
+    {
+        Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
+        glm::mat4 inverse_model_matrix = mesh->inverse_model_matrix;
+        glm::vec3 vmin = glm::vec3(mesh->bbox[0], mesh->bbox[1], mesh->bbox[2]);
+        glm::vec3 vmax = glm::vec3(mesh->bbox[3], mesh->bbox[4], mesh->bbox[5]);
+
+        // Modify the ray to intersect transformed mesh data
+        Ray changed_ray;
+        changed_ray.origin = glm::vec3(inverse_model_matrix * glm::vec4(r.origin, 1));
+
+        // Homogenous coordinate must be set to 0 for vectors
+        /*https://online.ucsd.edu/courses/course-v1:CSE+168X+2020-SP/courseware/Unit_3/L10/1?activate_block_id=block-v1%3ACSE%2B168X%2B2020-SP%2Btype%40html%2Bblock%40video_l10v1*/
+        changed_ray.direction = glm::vec3(inverse_model_matrix * glm::vec4(r.direction, 0));
+
+        bool box_hit = ray_intersect_box(changed_ray, vmin, vmax);
+        if(!box_hit)
+            continue;
+
+        for (u32 c=0; c<mesh->vertex_array_length; c += 9)
+        {
+            // Move to prepare mesh and construct render data triangles
+            Triangle tri;
+            tri.A = glm::vec3(mesh->vertex_positions[c], mesh->vertex_positions[c+1], mesh->vertex_positions[c+2]);
+            tri.B = glm::vec3(mesh->vertex_positions[c+3], mesh->vertex_positions[c+4], mesh->vertex_positions[c+5]);
+            tri.C = glm::vec3(mesh->vertex_positions[c+6], mesh->vertex_positions[c+7], mesh->vertex_positions[c+8]);
+
+            HitRecord this_hit_record;
+            this_hit_record.t = RAY_MAX_DISTANCE;
+            this_hit_record.p = glm::vec3(0);
+            this_hit_record.normal= glm::vec3(0);
+            bool intersect = ray_intersect_triangle(changed_ray, tri, 0.01f, 10000.0f, this_hit_record);
+
+            if (intersect && this_hit_record.t < closest_hit.t)
+            {
+                closest_hit.t = this_hit_record.t;
+                closest_hit.p = glm::vec3(mesh->model_matrix * glm::vec4(this_hit_record.p, 1));
+                closest_hit.normal = glm::normalize(glm::vec3(mesh->inverse_transpose_model_matrix * glm::vec4(this_hit_record.normal, 1)));
+            }
+        }
+    }
+}
+
+typedef struct RenderThreadArgs
+{
+    float  u;
+    float  v;
+    HitRecord hit_record;
+} RenderThreadArgs;
+
+
+void render(GLFWwindow* window, float* buffer)
+{
+    int buffer_width, buffer_height;
+    glfwGetFramebufferSize(window, &buffer_width, &buffer_height);
+
+    buffer_width /= 4;
+    buffer_height /= 4;
+
+    print("Rendering %ix%i image", buffer_width, buffer_height);
+
+    print("Preparing meshes...");
+    prepare_meshes_for_render();
+
+    int processor_count = std::thread::hardware_concurrency();
+    print("CPU count %i", processor_count);
+
+    float u, v;
+
+    for(int j=0; j < buffer_height; ++j)
+    {
+        for(int i=0; i < buffer_width; ++i)
+        {
+            u = i / (float)buffer_width;
+            v = j / (float)buffer_height;
+
+            HitRecord hit_result;
+            trace_ray(u, v, hit_result);
+            /*if(hit_result.t != RAY_MAX_DISTANCE)*/
+            /*{*/
+                /*buffer[j * buffer_width + i] = 1;*/
+            /*}*/
+            /*else*/
+            /*{*/
+                /*buffer[j * buffer_width + i] = 0;*/
+            /*}*/
+        }
+    }
+}
+
 
 int main()
 {
@@ -990,6 +1055,10 @@ int main()
              is_running = false;
              break;
         }
+        int frame_width, frame_height;
+        glfwGetFramebufferSize(window, &frame_width, &frame_height);
+        float* buffer = (float*)malloc(frame_width * frame_height * sizeof(float));
+
         glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
@@ -1206,61 +1275,14 @@ int main()
             draw_marquee(marquee_VAO, marquee_VBO, ortho_projection, marquee_outline_shader_program_id, marquee_inside_shader_program_id);
         }
 
+        render(window, buffer);
+        last_frame = current_frame;
+        print("Render done in %f ms", time_in_ms);
 
-        if(closest_hit.t < 1000.0f)
-        {
-            print("Hit distance %f, point %f %f %f", closest_hit.t, closest_hit.p.x, closest_hit.p.y, closest_hit.p.z);
-
-            unsigned int rayVAO, rayVBO, rayColorBuffer;
-            glGenVertexArrays(1, &rayVAO);
-            glGenBuffers(1, &rayVBO);
-            glGenBuffers(1, &rayColorBuffer);
-            glm::vec3 point = closest_hit.p;
-            glm::vec3 normal = closest_hit.normal;
-
-            float hit_vertices[2][3];
-            hit_vertices[0][0] = point.x;
-            hit_vertices[0][1] = point.y;
-            hit_vertices[0][2] = point.z;
-
-            glm::vec3 end = point + glm::vec3(-1)*normal;
-            print("point %f %f %f", point.x, point.y, point.z);
-            print("normal %f %f %f", normal.x, normal.y, normal.z);
-
-            hit_vertices[1][0] = end.x;
-            hit_vertices[1][1] = end.y;
-            hit_vertices[1][2] = end.z;
-
-            float hit_colors[6] = {1,1,0,1,1,0};
-
-            glBindVertexArray(rayVAO);
-            glBindBuffer(GL_ARRAY_BUFFER, rayVBO);
-            glBufferData(GL_ARRAY_BUFFER,
-                         6 * sizeof(float),
-                         hit_vertices,
-                         GL_STATIC_DRAW);
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-
-            glBindBuffer(GL_ARRAY_BUFFER, rayColorBuffer);
-            glBufferData(GL_ARRAY_BUFFER,
-                         6 * sizeof(float),
-                         hit_colors,
-                         GL_STATIC_DRAW);
-            glEnableVertexAttribArray(1);
-            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-
-            glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-            glUseProgram(default_shader_program_id);
-            glDrawArrays(GL_LINES, 0, 4);
-            glUseProgram(0);
-            glBindVertexArray(0);
-
-            glDeleteBuffers(1, &rayVAO);
-            glDeleteBuffers(1, &rayVBO);
-            glDeleteBuffers(1, &rayColorBuffer);
-        }
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glDisable(GL_DEPTH_TEST);
+        glDrawPixels(frame_width, frame_height, GL_RGBA, GL_UNSIGNED_BYTE, &buffer);
+        glEnable(GL_DEPTH_TEST);
         glfwSwapBuffers(window);
 
         render_selection_buffer(window, vp);

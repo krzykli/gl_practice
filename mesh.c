@@ -7,6 +7,8 @@ typedef struct Mesh
     GLuint shader_id;
     u32 vertex_array_length;
     glm::mat4 model_matrix;
+    glm::mat4 inverse_model_matrix;
+    glm::mat4 inverse_transpose_model_matrix;
     float bbox[6];
     float* vertex_positions;
     float* vertex_colors;
