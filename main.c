@@ -47,7 +47,6 @@
 
 static Camera global_cam;
 static double delta_time; 
-static HitRecord closest_hit;
 
 static float cursor_delta_x = 0;
 static float cursor_delta_y = 0;
@@ -80,6 +79,7 @@ static Mesh* mouse_over_mesh = NULL;
 static Array rays;
 
 static bool is_running = true;
+static bool render_view = false;
 
 const float TWO_M_PI = M_PI*2.0f;
 const float M_PI_OVER_TWO = M_PI/2.0f;
@@ -660,7 +660,6 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
         mesh_init(cube_mesh, 3);
         cube_mesh.shader_id = default_shader_program_id;
         array_append(mesh_data_array, &cube_mesh);
-        /*print("count %i", mesh_data_array.element_count);*/
     }
     else if (key == GLFW_KEY_DOWN)
     {
@@ -669,25 +668,33 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
             array_pop(mesh_data_array);
         }
     }
-    else if (key == GLFW_KEY_F and action == GLFW_PRESS)
+
+    if(action == GLFW_PRESS)
     {
-        if (selected_mesh_indices.element_count > 0)
+        if (key == GLFW_KEY_A)
         {
-            u32* mesh_idx = (u32*)array_get_index(selected_mesh_indices, 0);
-            Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, *mesh_idx);
-            focus_on_mesh(mesh);
+            render_selction_buffer = true;
         }
-        else
+        else if (key == GLFW_KEY_SPACE)
         {
-            global_cam.target = glm::vec3(0.0f, 0.0f, 0.0f);
+            render_view = !render_view;
         }
-        camera_update(global_cam);
+        else if (key == GLFW_KEY_F)
+        {
+            if (selected_mesh_indices.element_count > 0)
+            {
+                u32* mesh_idx = (u32*)array_get_index(selected_mesh_indices, 0);
+                Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, *mesh_idx);
+                focus_on_mesh(mesh);
+            }
+            else
+            {
+                global_cam.target = glm::vec3(0.0f, 0.0f, 0.0f);
+            }
+            camera_update(global_cam);
+        }
     }
-    else if (key == GLFW_KEY_A and action == GLFW_PRESS)
-    {
-        render_selction_buffer = true;
-    }
-    else if (key == GLFW_KEY_A and action == GLFW_RELEASE)
+    else if (action == GLFW_RELEASE)
     {
         render_selction_buffer = false;
     }
@@ -733,15 +740,9 @@ void prepare_meshes_for_render()
 }
 
 // TODO multithread buckets
-void trace_ray(float u, float v, HitRecord &cloest_hit)
+void trace_ray(float u, float v, HitRecord &closest_hit)
 {
     Ray r = camera_shoot_ray(global_cam, u, v);
-
-    closest_hit.t = RAY_MAX_DISTANCE;
-    closest_hit.p = glm::vec3(0);
-    closest_hit.normal= glm::vec3(0);
-
-
     for (int i=0; i < mesh_data_array.element_count; ++i)
     {
         Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, i);
@@ -773,7 +774,7 @@ void trace_ray(float u, float v, HitRecord &cloest_hit)
             this_hit_record.t = RAY_MAX_DISTANCE;
             this_hit_record.p = glm::vec3(0);
             this_hit_record.normal= glm::vec3(0);
-            bool intersect = ray_intersect_triangle(changed_ray, tri, 0.01f, 10000.0f, this_hit_record);
+            bool intersect = ray_intersect_triangle(changed_ray, tri, 0.001f, 10000.0f, this_hit_record);
 
             if (intersect && this_hit_record.t < closest_hit.t)
             {
@@ -793,13 +794,13 @@ typedef struct RenderThreadArgs
 } RenderThreadArgs;
 
 
-void render(GLFWwindow* window, float* buffer)
+void render(GLFWwindow* window, u32* buffer)
 {
     int buffer_width, buffer_height;
     glfwGetFramebufferSize(window, &buffer_width, &buffer_height);
 
-    buffer_width /= 4;
-    buffer_height /= 4;
+    buffer_width /= 2;
+    buffer_height /= 2;
 
     print("Rendering %ix%i image", buffer_width, buffer_height);
 
@@ -819,15 +820,20 @@ void render(GLFWwindow* window, float* buffer)
             v = j / (float)buffer_height;
 
             HitRecord hit_result;
+            hit_result.t = RAY_MAX_DISTANCE;
+            hit_result.p = glm::vec3(0);
+            hit_result.normal= glm::vec3(0);
+
             trace_ray(u, v, hit_result);
-            /*if(hit_result.t != RAY_MAX_DISTANCE)*/
-            /*{*/
-                /*buffer[j * buffer_width + i] = 1;*/
-            /*}*/
-            /*else*/
-            /*{*/
-                /*buffer[j * buffer_width + i] = 0;*/
-            /*}*/
+
+            if(hit_result.t != RAY_MAX_DISTANCE)
+            {
+                buffer[j * buffer_width + i] = 0xFFFFFFFF;
+            }
+            else
+            {
+                buffer[j * buffer_width + i] = 0;
+            }
         }
     }
 }
@@ -907,6 +913,8 @@ int main()
     GLuint background_shader_program_id = create_shader(
         "shaders/background.vert", "shaders/background.frag");
 
+    GLuint render_shader_program_id = create_shader(
+        "shaders/render.vert", "shaders/render.frag");
 
     Array keys;
     array_init(keys, sizeof(char*) * 64, 128);
@@ -1048,6 +1056,60 @@ int main()
     glBindVertexArray(0);
 
 
+    int frame_width, frame_height;
+    glfwGetWindowSize(window, &frame_width, &frame_height);
+    u32* render_buffer = (u32*)malloc(frame_width * frame_height * sizeof(u32));
+
+    unsigned int render_texture;
+    glGenTextures(1, &render_texture);
+    glBindTexture(GL_TEXTURE_2D, render_texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glUseProgram(render_shader_program_id);
+    glUniform1i(glGetUniformLocation(render_shader_program_id, "texture1"), 0);
+    glUseProgram(0);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // https://learnopengl.com/code_viewer_gh.php?code=src/1.getting_started/4.2.textures_combined/textures_combined.cpp
+    float render_vertices[] = {
+        // positions          // colors           // texture coords
+        -1.0f, 1.0f, 0.0f,   1.0f, 0.0f, 0.0f,   1.0f, 1.0f, // top right
+        -1.0f, -1.0f, 0.0f,  0.0f, 1.0f, 0.0f,   1.0f, 0.0f, // bottom right
+        1.0f, -1.0f, 0.0f,   0.0f, 0.0f, 1.0f,   0.0f, 0.0f, // bottom left
+        1.0f,  1.0f, 0.0f,   1.0f, 1.0f, 0.0f,   0.0f, 1.0f  // top left 
+    };
+
+    u32 render_indices[] = {
+        0, 1, 3, // first triangle
+        1, 2, 3  // second triangle
+    };
+
+    GLuint render_VAO, render_VBO, render_EBO;
+    glGenVertexArrays(1, &render_VAO);
+    glGenBuffers(1, &render_VBO);
+    glGenBuffers(1, &render_EBO);
+
+    glBindVertexArray(render_VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, render_VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(render_vertices), render_vertices, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, render_EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(render_indices), render_indices, GL_STATIC_DRAW);
+
+    // position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    // color attribute
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    // texture coord attribute
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+
+
     bool lock_framerate = false;
     while (is_running) {
         if (glfwWindowShouldClose(window))
@@ -1055,9 +1117,6 @@ int main()
              is_running = false;
              break;
         }
-        int frame_width, frame_height;
-        glfwGetFramebufferSize(window, &frame_width, &frame_height);
-        float* buffer = (float*)malloc(frame_width * frame_height * sizeof(float));
 
         glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -1235,6 +1294,29 @@ int main()
 
         }
 
+        if(render_view)
+        {
+            render(window, render_buffer);
+            last_frame = current_frame;
+            print("Render done in %f ms", time_in_ms);
+
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+            glDisable(GL_DEPTH_TEST);
+
+            // bind textures on corresponding texture units
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, render_texture);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, window_width, window_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, render_buffer);
+
+            // render container
+            glUseProgram(render_shader_program_id);
+            glBindVertexArray(render_VAO);
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+            glUseProgram(0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+
+
         // Text
         glm::mat4 ortho_projection = glm::ortho(0.0f, (float)window_width, 0.0f, (float)window_height);
 
@@ -1275,24 +1357,21 @@ int main()
             draw_marquee(marquee_VAO, marquee_VBO, ortho_projection, marquee_outline_shader_program_id, marquee_inside_shader_program_id);
         }
 
-        render(window, buffer);
-        last_frame = current_frame;
-        print("Render done in %f ms", time_in_ms);
-
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glDisable(GL_DEPTH_TEST);
-        glDrawPixels(frame_width, frame_height, GL_RGBA, GL_UNSIGNED_BYTE, &buffer);
-        glEnable(GL_DEPTH_TEST);
         glfwSwapBuffers(window);
 
         render_selection_buffer(window, vp);
-        // NOTE(kk): render selection back buffer before polling events
+        /*// NOTE(kk): render selection back render_buffer before polling events*/
         glfwPollEvents();
     }
+
+    glDeleteVertexArrays(1, &render_VAO);
+    glDeleteBuffers(1, &render_VBO);
+    glDeleteBuffers(1, &render_EBO);
 
 
     array_free(mesh_data_array);
     array_free(selected_mesh_indices);
+    free(render_buffer);
 
     glfwTerminate();
     return 0;
