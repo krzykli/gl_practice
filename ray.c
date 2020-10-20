@@ -42,7 +42,7 @@ bool ray_intersect_triangle(Ray &ray, Triangle& tri, float t_min, float t_max, H
 
     glm::vec3 AB = (tri.B - tri.A);
     glm::vec3 AC = (tri.C - tri.A);
-    glm::vec3 normal = glm::normalize(glm::cross(AC, AB));
+    glm::vec3 normal = glm::normalize(glm::cross(AB, AC));
 
     glm::vec3 rayCrossEdge = glm::cross(ray.direction, AC);
 

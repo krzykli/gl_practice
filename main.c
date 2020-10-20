@@ -822,15 +822,17 @@ void render(u32 buffer_width, u32 buffer_height, u32* buffer)
 
             if(hit_result.t != RAY_MAX_DISTANCE)
             {
-                glm::vec3 normalized = glm::normalize(hit_result.normal);
-                u32 colorR = (u32)((normalized.x * 0.5 + 0.5) * 255.0f);
-                u32 colorG = (u32)((normalized.y * 0.5 + 0.5) * 255.0f);
-                u32 colorB = (u32)((normalized.z * 0.5 + 0.5) * 255.0f);
-                u32 alpha = 255;
+                glm::vec3 normal = hit_result.normal;
+                u8 colorR = (u8)((normal.x + 1) / 2 * 255.0f);
+                u8 colorG = (u8)((normal.y + 1) / 2 * 255.0f);
+                u8 colorB = (u8)((normal.z + 1) / 2 * 255.0f);
+                u8 alpha = 255;
 
                 u32 final = colorR | (colorG << 8) | (colorB << 16) | (alpha << 24);
 
-                //print("%u %u %u - %04X", colorR, colorG, colorB, final);
+                /*print("normal %f %f %f", normal.x, normal.y, normal.z);*/
+                /*print("normal rescaled %f %f %f", (normal.x + 1) / 2, (normal.y + 1) / 2, (normal.z + 1) / 2);*/
+                /*print("%u %u %u - %04X", colorR, colorG, colorB, final);*/
                 buffer[j * buffer_width + i] = final;
 
             }
@@ -1020,7 +1022,7 @@ int main()
                                           /*glm::vec3(0.5,0.5,0.5));*/
     teapot_mesh.model_matrix = glm::translate(teapot_mesh.model_matrix,
                                               glm::vec3(0,-10,0));
-    teapot_mesh.model_matrix = glm::rotate(teapot_mesh.model_matrix, 45.0f, glm::vec3(1,1,0));
+    //teapot_mesh.model_matrix = glm::rotate(teapot_mesh.model_matrix, 45.0f, glm::vec3(1,1,0));
     teapot_mesh.shader_id = lambert_shader_program_id;
     array_append(mesh_data_array, &teapot_mesh);
 
@@ -1106,8 +1108,8 @@ int main()
     glBindTexture(GL_TEXTURE_2D, render_texture);
     int buffer_width, buffer_height;
     glfwGetWindowSize(window, &buffer_width, &buffer_height);
-    buffer_width /= 8;
-    buffer_height /= 8;
+    buffer_width /= 4;
+    buffer_height /= 4;
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, buffer_width, buffer_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -1204,6 +1206,33 @@ int main()
 
                 GLuint object_shader = mesh->shader_id;
                 drawMesh(*mesh, GL_TRIANGLES, object_shader, vp);
+            }
+
+            if(render_view)
+            {
+                camera_update(global_cam);
+                render(buffer_width, buffer_height, render_buffer);
+                last_frame = current_frame;
+                //print("Render done in %f ms", time_in_ms);
+
+                //glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+                glDisable(GL_DEPTH_TEST);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                // bind textures on corresponding texture units
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, render_texture);
+                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, buffer_width, buffer_height, GL_RGBA, GL_UNSIGNED_BYTE, render_buffer);
+
+                // render container
+                glUseProgram(render_shader_program_id);
+                glBindVertexArray(render_VAO);
+                glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+                glUseProgram(0);
+                glBindTexture(GL_TEXTURE_2D, 0);
+                glDisable(GL_BLEND);
+                glEnable(GL_DEPTH_TEST);
             }
 
             bool active_selection = 0;
@@ -1305,32 +1334,6 @@ int main()
             Mesh* mesh = (Mesh*)array_get_index(mesh_data_array, 1);
             drawMesh(grid_mesh, GL_LINES, default_shader_program_id, vp);
 
-        }
-
-        if(render_view)
-        {
-            camera_update(global_cam);
-            render(buffer_width, buffer_height, render_buffer);
-            last_frame = current_frame;
-            //print("Render done in %f ms", time_in_ms);
-
-            //glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-            glDisable(GL_DEPTH_TEST);
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-            // bind textures on corresponding texture units
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, render_texture);
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, buffer_width, buffer_height, GL_RGBA, GL_UNSIGNED_BYTE, render_buffer);
-
-            // render container
-            glUseProgram(render_shader_program_id);
-            glBindVertexArray(render_VAO);
-            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-            glUseProgram(0);
-            glBindTexture(GL_TEXTURE_2D, 0);
-            glDisable(GL_BLEND);
         }
 
 
