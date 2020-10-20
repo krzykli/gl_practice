@@ -13,4 +13,5 @@ void main() {
     vec3 ambient_light  = vec3(0.1,0.1,0.2);
     float cosTheta = clamp( dot( normal, light_pos ), 0,1 );
     color = fragmentColor + vec3(0.7, 0.0, 0.7) * hover_multiplier + cosTheta * light_color + ambient_light;
+    color = normal;
 }

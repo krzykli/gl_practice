@@ -794,21 +794,15 @@ typedef struct RenderThreadArgs
 } RenderThreadArgs;
 
 
-void render(GLFWwindow* window, u32* buffer)
+void render(u32 buffer_width, u32 buffer_height, u32* buffer)
 {
-    int buffer_width, buffer_height;
-    glfwGetFramebufferSize(window, &buffer_width, &buffer_height);
 
-    buffer_width /= 2;
-    buffer_height /= 2;
-
-    print("Rendering %ix%i image", buffer_width, buffer_height);
-
-    print("Preparing meshes...");
-    prepare_meshes_for_render();
+    // print("Rendering %ix%i image", buffer_width, buffer_height);
 
     int processor_count = std::thread::hardware_concurrency();
-    print("CPU count %i", processor_count);
+    // print("CPU count %i", processor_count);
+    //print("Preparing meshes...");
+    prepare_meshes_for_render();
 
     float u, v;
 
@@ -828,11 +822,21 @@ void render(GLFWwindow* window, u32* buffer)
 
             if(hit_result.t != RAY_MAX_DISTANCE)
             {
-                buffer[j * buffer_width + i] = 0xFFFFFFFF;
+                glm::vec3 normalized = glm::normalize(hit_result.normal);
+                u32 colorR = (u32)((normalized.x * 0.5 + 0.5) * 255.0f);
+                u32 colorG = (u32)((normalized.y * 0.5 + 0.5) * 255.0f);
+                u32 colorB = (u32)((normalized.z * 0.5 + 0.5) * 255.0f);
+                u32 alpha = 255;
+
+                u32 final = colorR | (colorG << 8) | (colorB << 16) | (alpha << 24);
+
+                //print("%u %u %u - %04X", colorR, colorG, colorB, final);
+                buffer[j * buffer_width + i] = final;
+
             }
             else
             {
-                buffer[j * buffer_width + i] = 0;
+                buffer[j * buffer_width + i] = 0x0;
             }
         }
     }
@@ -1075,10 +1079,10 @@ int main()
     // https://learnopengl.com/code_viewer_gh.php?code=src/1.getting_started/4.2.textures_combined/textures_combined.cpp
     float render_vertices[] = {
         // positions          // colors           // texture coords
-        -1.0f, 1.0f, 0.0f,   1.0f, 0.0f, 0.0f,   1.0f, 1.0f, // top right
-        -1.0f, -1.0f, 0.0f,  0.0f, 1.0f, 0.0f,   1.0f, 0.0f, // bottom right
-        1.0f, -1.0f, 0.0f,   0.0f, 0.0f, 1.0f,   0.0f, 0.0f, // bottom left
-        1.0f,  1.0f, 0.0f,   1.0f, 1.0f, 0.0f,   0.0f, 1.0f  // top left 
+        -1.0f, 1.0f, 0.0f,   1.0f, 0.0f, 0.0f,   0.0f, 1.0f, // top right
+        -1.0f, -1.0f, 0.0f,  0.0f, 1.0f, 0.0f,   0.0f, 0.0f, // bottom right
+        1.0f, -1.0f, 0.0f,   0.0f, 0.0f, 1.0f,   1.0f, 0.0f, // bottom left
+        1.0f,  1.0f, 0.0f,   1.0f, 1.0f, 0.0f,   1.0f, 1.0f  // top left 
     };
 
     u32 render_indices[] = {
@@ -1098,6 +1102,15 @@ int main()
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, render_EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(render_indices), render_indices, GL_STATIC_DRAW);
+
+    glBindTexture(GL_TEXTURE_2D, render_texture);
+    int buffer_width, buffer_height;
+    glfwGetWindowSize(window, &buffer_width, &buffer_height);
+    buffer_width /= 8;
+    buffer_height /= 8;
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, buffer_width, buffer_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
     // position attribute
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
@@ -1296,17 +1309,20 @@ int main()
 
         if(render_view)
         {
-            render(window, render_buffer);
+            camera_update(global_cam);
+            render(buffer_width, buffer_height, render_buffer);
             last_frame = current_frame;
-            print("Render done in %f ms", time_in_ms);
+            //print("Render done in %f ms", time_in_ms);
 
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+            //glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
             glDisable(GL_DEPTH_TEST);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
             // bind textures on corresponding texture units
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, render_texture);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, window_width, window_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, render_buffer);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, buffer_width, buffer_height, GL_RGBA, GL_UNSIGNED_BYTE, render_buffer);
 
             // render container
             glUseProgram(render_shader_program_id);
@@ -1314,6 +1330,7 @@ int main()
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
             glUseProgram(0);
             glBindTexture(GL_TEXTURE_2D, 0);
+            glDisable(GL_BLEND);
         }
 
 
