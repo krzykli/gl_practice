@@ -457,7 +457,6 @@ static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
         mouse_over_mesh = NULL;
     }
 
-    camera_update(global_cam);
     /*print("Press %f, %f", xpos, ypos);*/
     v2i pixel_coords = get_mouse_pixel_coords(window);
 
@@ -794,24 +793,40 @@ typedef struct RenderThreadArgs
 } RenderThreadArgs;
 
 
-void render(u32 buffer_width, u32 buffer_height, u32* buffer)
+
+typedef struct ImageBuffer
 {
+     u32* buffer;
+     u32 width;
+     u32 height;
+} ImageBuffer;
 
-    // print("Rendering %ix%i image", buffer_width, buffer_height);
 
-    int processor_count = std::thread::hardware_concurrency();
-    // print("CPU count %i", processor_count);
-    //print("Preparing meshes...");
-    prepare_meshes_for_render();
+typedef struct Bucket
+{
+     u32 xmin;
+     u32 ymin;
+     u32 xmax;
+     u32 ymax;
+} Bucket;
 
+
+u32* get_image_pixel(ImageBuffer image, u32 x, u32 y)
+{
+     return image.buffer + y * image.width + x;
+}
+
+
+void raycast_bucket(ImageBuffer image, Bucket bucket)
+{
     float u, v;
-
-    for(int j=0; j < buffer_height; ++j)
+    print("Rendering %ux%u", image.width, image.height);
+    for(int j=bucket.ymin; j < bucket.ymax; ++j)
     {
-        for(int i=0; i < buffer_width; ++i)
+        for(int i=bucket.xmin; i < bucket.xmax; ++i)
         {
-            u = i / (float)buffer_width;
-            v = j / (float)buffer_height;
+            u = i / (float)image.width;
+            v = j / (float)image.height;
 
             HitRecord hit_result;
             hit_result.t = RAY_MAX_DISTANCE;
@@ -822,6 +837,7 @@ void render(u32 buffer_width, u32 buffer_height, u32* buffer)
 
             if(hit_result.t != RAY_MAX_DISTANCE)
             {
+
                 glm::vec3 normal = hit_result.normal;
                 u8 colorR = (u8)((normal.x + 1) / 2 * 255.0f);
                 u8 colorG = (u8)((normal.y + 1) / 2 * 255.0f);
@@ -833,12 +849,11 @@ void render(u32 buffer_width, u32 buffer_height, u32* buffer)
                 /*print("normal %f %f %f", normal.x, normal.y, normal.z);*/
                 /*print("normal rescaled %f %f %f", (normal.x + 1) / 2, (normal.y + 1) / 2, (normal.z + 1) / 2);*/
                 /*print("%u %u %u - %04X", colorR, colorG, colorB, final);*/
-                buffer[j * buffer_width + i] = final;
-
+                image.buffer[j * image.width + i] = final;
             }
             else
             {
-                buffer[j * buffer_width + i] = 0x0;
+                image.buffer[j * image.width + i] = 0x0;
             }
         }
     }
@@ -1064,7 +1079,14 @@ int main()
 
     int frame_width, frame_height;
     glfwGetWindowSize(window, &frame_width, &frame_height);
-    u32* render_buffer = (u32*)malloc(frame_width * frame_height * sizeof(u32));
+
+    u32 buffer_width = frame_width / 4;
+    u32 buffer_height = frame_height / 4;
+
+    ImageBuffer render_image;
+    render_image.buffer = (u32*)malloc(buffer_width * buffer_height * sizeof(u32));
+    render_image.width = buffer_width;
+    render_image.height = buffer_height;
 
     unsigned int render_texture;
     glGenTextures(1, &render_texture);
@@ -1106,12 +1128,8 @@ int main()
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(render_indices), render_indices, GL_STATIC_DRAW);
 
     glBindTexture(GL_TEXTURE_2D, render_texture);
-    int buffer_width, buffer_height;
-    glfwGetWindowSize(window, &buffer_width, &buffer_height);
-    buffer_width /= 4;
-    buffer_height /= 4;
 
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, buffer_width, buffer_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, render_image.width, render_image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glBindTexture(GL_TEXTURE_2D, 0);
 
     // position attribute
@@ -1211,7 +1229,41 @@ int main()
             if(render_view)
             {
                 camera_update(global_cam);
-                render(buffer_width, buffer_height, render_buffer);
+                int processor_count = std::thread::hardware_concurrency();
+                print("CPU count %i", processor_count);
+                //print("Preparing meshes...");
+                prepare_meshes_for_render();
+
+                u32 half_proc = processor_count / 2;
+
+                // Bucket per CPU
+                u32 bucket_width = render_image.width / half_proc;
+                u32 bucket_height = render_image.height / half_proc;
+
+                Bucket buckets[processor_count];
+
+                u32 buc_idx = 0;
+                for (u32 i=0; i < half_proc; ++i)
+                {
+                    for (u32 j=0; j < half_proc; ++j)
+                    {
+                        u32 xmin = i*bucket_width;
+                        u32 ymin = j*bucket_height;
+                        u32 xmax = (i+1)*bucket_width;
+                        u32 ymax = (j+1)*bucket_height;
+                        Bucket buc = {i* bucket_width, j* bucket_height, (i + 1) * bucket_width, (j + 1) * bucket_height};
+                        buckets[buc_idx] = buc;
+                        buc_idx++;
+                    }
+                }
+
+                for (u32 i=0; i < processor_count; ++i)
+                {
+                    Bucket buc = buckets[i];
+                    print("xmin, ymin, xmax, ymax, %u %u %u %u", buc.xmin, buc.ymin, buc.xmax, buc.ymax);
+                    raycast_bucket(render_image, buc);
+                }
+
                 last_frame = current_frame;
                 //print("Render done in %f ms", time_in_ms);
 
@@ -1223,7 +1275,9 @@ int main()
                 // bind textures on corresponding texture units
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, render_texture);
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, buffer_width, buffer_height, GL_RGBA, GL_UNSIGNED_BYTE, render_buffer);
+
+                // NOTE(kk): Change this per bucket?
+                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, render_image.width, render_image.height, GL_RGBA, GL_UNSIGNED_BYTE, render_image.buffer);
 
                 // render container
                 glUseProgram(render_shader_program_id);
@@ -1391,7 +1445,7 @@ int main()
 
     array_free(mesh_data_array);
     array_free(selected_mesh_indices);
-    free(render_buffer);
+    free(render_image.buffer);
 
     glfwTerminate();
     return 0;
