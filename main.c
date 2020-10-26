@@ -811,14 +811,47 @@ typedef struct Bucket
 } Bucket;
 
 
+typedef struct RenderRequest
+{
+    ImageBuffer image_buffer;
+    Bucket bucket;
+} RenderRequest;
+
+
+typedef struct RenderQueue
+{
+    u32 request_count;
+    RenderRequest *requests;
+    volatile u32 requests_rendered;
+    volatile u32 next_request_index;
+} RenderQueue;
+
+
 u32* get_image_pixel(ImageBuffer image, u32 x, u32 y)
 {
      return image.buffer + y * image.width + x;
 }
 
-
-void raycast_bucket(ImageBuffer image, Bucket bucket)
+u32 lock_uadd(volatile u32 *a, u32 b)
 {
+     return __sync_fetch_and_add(a, b);
+}
+
+
+u32 raycast(RenderQueue *queue)
+{
+    u32 request_index = lock_uadd(&queue->next_request_index, 1) - 1;
+    print("Index %i", request_index);
+    print("queue %i", queue->request_count);
+    if(request_index > queue->request_count)
+    {
+        print("thread done");
+         return 0;
+    }
+    RenderRequest rr = queue->requests[request_index];
+
+    ImageBuffer image = rr.image_buffer;
+    Bucket bucket = rr.bucket;
     float u, v;
     print("Rendering %ux%u", image.width, image.height);
     for(int j=bucket.ymin; j < bucket.ymax; ++j)
@@ -857,6 +890,15 @@ void raycast_bucket(ImageBuffer image, Bucket bucket)
             }
         }
     }
+    lock_uadd(&queue->requests_rendered, 1);
+    return 1;
+}
+
+
+void* raycast_thread(void* args)
+{
+     RenderQueue *queue = (RenderQueue*)args;
+     raycast(queue);
 }
 
 
@@ -1080,8 +1122,8 @@ int main()
     int frame_width, frame_height;
     glfwGetWindowSize(window, &frame_width, &frame_height);
 
-    u32 buffer_width = frame_width / 4;
-    u32 buffer_height = frame_height / 4;
+    u32 buffer_width = frame_width / 2;
+    u32 buffer_height = frame_height / 2;
 
     ImageBuffer render_image;
     render_image.buffer = (u32*)malloc(buffer_width * buffer_height * sizeof(u32));
@@ -1229,40 +1271,61 @@ int main()
             if(render_view)
             {
                 camera_update(global_cam);
-                int processor_count = std::thread::hardware_concurrency();
-                print("CPU count %i", processor_count);
+                int core_count = std::thread::hardware_concurrency();
+                //print("CPU count %i", core_count);
                 //print("Preparing meshes...");
                 prepare_meshes_for_render();
 
-                u32 half_proc = processor_count / 2;
+                u32 bucket_size = 32;
+                u32 buckets_x = ceil((render_image.width) / (float)bucket_size);
+                u32 buckets_y = ceil((render_image.height) / (float)bucket_size);
 
-                // Bucket per CPU
-                u32 bucket_width = render_image.width / half_proc;
-                u32 bucket_height = render_image.height / half_proc;
+                u32 bucket_count = buckets_x * buckets_y;
 
-                Bucket buckets[processor_count];
+                RenderRequest requests[bucket_count];
 
-                u32 buc_idx = 0;
-                for (u32 i=0; i < half_proc; ++i)
+                u32 idx = 0;
+                for (u32 i=0; i < buckets_x; ++i)
                 {
-                    for (u32 j=0; j < half_proc; ++j)
+                    for (u32 j=0; j < buckets_y; ++j)
                     {
-                        u32 xmin = i*bucket_width;
-                        u32 ymin = j*bucket_height;
-                        u32 xmax = (i+1)*bucket_width;
-                        u32 ymax = (j+1)*bucket_height;
-                        Bucket buc = {i* bucket_width, j* bucket_height, (i + 1) * bucket_width, (j + 1) * bucket_height};
-                        buckets[buc_idx] = buc;
-                        buc_idx++;
+                        u32 xmin = i*bucket_size;
+                        u32 ymin = j*bucket_size;
+                        u32 xmax = fmin((i+1)*bucket_size, render_image.width);
+                        u32 ymax = fmin((j+1)*bucket_size, render_image.height);
+                        Bucket buc = {xmin, ymin, xmax, ymax};
+                        RenderRequest rr;
+                        rr.image_buffer= render_image;
+                        rr.bucket = buc;
+                        requests[idx] = rr;
+                        idx++;
                     }
                 }
 
-                for (u32 i=0; i < processor_count; ++i)
+                RenderQueue queue;
+                queue.request_count = bucket_count;
+                queue.requests = requests;
+                queue.requests_rendered = 0;
+                queue.next_request_index = 0;
+
+                pthread_t threads[core_count - 1];
+
+                for(u32 core_id = 1; core_id < core_count; ++core_id)
                 {
-                    Bucket buc = buckets[i];
-                    print("xmin, ymin, xmax, ymax, %u %u %u %u", buc.xmin, buc.ymin, buc.xmax, buc.ymax);
-                    raycast_bucket(render_image, buc);
+                     pthread_t thread_id;
+                     threads[core_id - 1] = thread_id;
+                     pthread_create(&thread_id, NULL, raycast_thread, (void*)&queue);
                 }
+
+
+                while(queue.requests_rendered != bucket_count)
+                {
+                    raycast(&queue);
+                }
+
+                pthread_join(threads[0], NULL);
+                pthread_join(threads[1], NULL);
+                pthread_join(threads[2], NULL);
 
                 last_frame = current_frame;
                 //print("Render done in %f ms", time_in_ms);
