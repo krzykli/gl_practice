@@ -832,28 +832,30 @@ u32* get_image_pixel(ImageBuffer image, u32 x, u32 y)
      return image.buffer + y * image.width + x;
 }
 
-u32 lock_uadd(volatile u32 *a, u32 b)
+u32 lock_add(volatile u32 *a, u32 b)
 {
-     return __sync_fetch_and_add(a, b);
+    pthread_t tid = pthread_self();
+    // print("From the function, the thread id %d", tid);
+    return __sync_fetch_and_add(a, b);
 }
 
 
-u32 raycast(RenderQueue *queue)
+bool raycast(RenderQueue *queue)
 {
-    u32 request_index = lock_uadd(&queue->next_request_index, 1) - 1;
-    print("Index %i", request_index);
-    print("queue %i", queue->request_count);
+    u32 request_index = lock_add(&queue->next_request_index, 1);
+    // print("Index %i", request_index);
+    // print("queue %i", queue->request_count);
     if(request_index > queue->request_count)
     {
-        print("thread done");
-         return 0;
+        // print("thread done");
+        return false;
     }
     RenderRequest rr = queue->requests[request_index];
 
     ImageBuffer image = rr.image_buffer;
     Bucket bucket = rr.bucket;
     float u, v;
-    print("Rendering %ux%u", image.width, image.height);
+    // print("Rendering %ux%u", image.width, image.height);
     for(int j=bucket.ymin; j < bucket.ymax; ++j)
     {
         for(int i=bucket.xmin; i < bucket.xmax; ++i)
@@ -890,15 +892,15 @@ u32 raycast(RenderQueue *queue)
             }
         }
     }
-    lock_uadd(&queue->requests_rendered, 1);
-    return 1;
+    lock_add(&queue->requests_rendered, 1);
+    return true;
 }
 
 
 void* raycast_thread(void* args)
 {
      RenderQueue *queue = (RenderQueue*)args;
-     raycast(queue);
+     while(raycast(queue)) {};
 }
 
 
@@ -1308,27 +1310,26 @@ int main()
                 queue.requests_rendered = 0;
                 queue.next_request_index = 0;
 
-                pthread_t threads[core_count - 1];
+                u32 thread_count = core_count - 1;
+                pthread_t threads[thread_count];
 
                 for(u32 core_id = 1; core_id < core_count; ++core_id)
                 {
                      pthread_t thread_id;
-                     threads[core_id - 1] = thread_id;
+                     // print("creating thread");
                      pthread_create(&thread_id, NULL, raycast_thread, (void*)&queue);
+                     threads[core_id - 1] = thread_id;
                 }
 
+                while(raycast(&queue)) {};
 
-                while(queue.requests_rendered != bucket_count)
+                for(u32 i = 0; i < thread_count; ++i)
                 {
-                    raycast(&queue);
+                    pthread_join(threads[i], NULL);
                 }
-
-                pthread_join(threads[0], NULL);
-                pthread_join(threads[1], NULL);
-                pthread_join(threads[2], NULL);
 
                 last_frame = current_frame;
-                //print("Render done in %f ms", time_in_ms);
+                // print("Render done in %f ms", time_in_ms);
 
                 //glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
                 glDisable(GL_DEPTH_TEST);
